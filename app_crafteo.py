@@ -6,7 +6,7 @@ Aplicación Streamlit interactiva con diseño mejorado
 import streamlit as st
 from config_items import (
     JOBS, TIPOS_CRAFTEO, ITEMS_RECOMPENSA, ITEMS_INGREDIENTES, 
-    ANIMACIONES, CONFIG_PATH, ALL_ITEMS
+    ANIMACIONES, CONFIG_PATH, ALL_ITEMS, CATEGORIAS_CRAFTEO
 )
 from lua_crafteo_generator import (
     generate_crafting_block, 
@@ -25,91 +25,216 @@ st.set_page_config(
 )
 
 # ============================================================================
-# ESTILOS CSS PERSONALIZADOS - DISEÑO MODERNO
+# ESTILOS CSS PERSONALIZADOS - TEMA RED DEAD REDEMPTION 2
 # ============================================================================
 st.markdown("""
 <style>
-    /* Reset y variables */
-    :root {
-        --primary-color: #ff6b35;
-        --secondary-color: #2a5298;
-        --bg-dark: #0e1117;
-        --bg-card: #1a1d24;
-        --bg-card-hover: #262b36;
-        --text-primary: #fafafa;
-        --text-secondary: #b0b0b0;
-        --success-color: #00d26a;
-        --warning-color: #ffc107;
-        --error-color: #ff4757;
-        --border-radius: 12px;
+    /* Importar fuentes Western */
+    @import url('https://fonts.googleapis.com/css2?family=Rye&family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&family=UnifrakturMaguntia&display=swap');
+    
+    /* FIX: Los emojis NO deben heredar italic */
+    .emoji, [class*="icon"], .empty-state-icon {
+        font-style: normal !important;
     }
     
-    /* Header principal */
+    /* Reset y variables - Paleta RDR2 Auténtica */
+    :root {
+        --rdr-gold: #c9a227;
+        --rdr-gold-light: #dbb84d;
+        --rdr-gold-dark: #8b6914;
+        --rdr-red: #8b0000;
+        --rdr-red-dark: #5c0000;
+        --rdr-red-blood: #6b1c1c;
+        --rdr-brown: #3d2914;
+        --rdr-brown-light: #5c3d1e;
+        --rdr-brown-dark: #1a1108;
+        --rdr-brown-warm: #4a3728;
+        --rdr-leather: #8b4513;
+        --rdr-leather-dark: #654321;
+        --rdr-parchment: #d4c5a9;
+        --rdr-parchment-dark: #c4b089;
+        --rdr-ink: #1a1a1a;
+        --rdr-cream: #f5e6c8;
+        --rdr-rust: #b7410e;
+        --rdr-sepia: #704214;
+        --border-radius: 3px;
+    }
+    
+    /* ====== TEXTURAS BASE64 PARA EVITAR DEPENDENCIAS EXTERNAS ====== */
+    
+    /* Fondo general - Textura de cuero oscuro con grano */
+    .stApp {
+        background: 
+            /* Capa de oscurecimiento */
+            linear-gradient(rgba(18, 12, 8, 0.92), rgba(26, 17, 8, 0.95)),
+            /* Textura de cuero marrón oscuro */
+            url('https://images.unsplash.com/photo-1531685250784-7569952593d2?w=1920&q=80');
+        background-size: cover;
+        background-attachment: fixed;
+        background-position: center;
+    }
+    
+    /* Header principal - Estilo WANTED POSTER auténtico */
     .main-header {
         text-align: center;
-        padding: 30px 20px;
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #ff6b35 100%);
+        padding: 50px 40px 40px 40px;
+        background: 
+            /* Textura de papel viejo/pergamino */
+            linear-gradient(rgba(212, 197, 169, 0.97), rgba(196, 176, 137, 0.95)),
+            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=1200&q=80');
+        background-size: cover;
+        background-position: center;
         border-radius: var(--border-radius);
-        margin-bottom: 25px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 30px;
+        border: none;
+        box-shadow: 
+            0 0 0 3px var(--rdr-brown-dark),
+            0 0 0 6px var(--rdr-leather),
+            0 0 0 8px var(--rdr-brown-dark),
+            0 12px 40px rgba(0, 0, 0, 0.7),
+            inset 0 0 100px rgba(139, 69, 19, 0.15);
+        position: relative;
+        /* Efecto de papel desgastado */
+        clip-path: polygon(
+            0% 2%, 2% 0%, 98% 0%, 100% 2%,
+            100% 98%, 98% 100%, 2% 100%, 0% 98%
+        );
+    }
+    
+    /* Decoraciones de esquina estilo cartel */
+    .main-header::before {
+        content: "★ WANTED ★";
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: 'Rye', cursive;
+        font-size: 0.85rem;
+        color: var(--rdr-red-dark);
+        letter-spacing: 8px;
+        opacity: 0.7;
+    }
+    
+    .main-header::after {
+        content: "— DEAD OR ALIVE —";
+        position: absolute;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: 'IM Fell English', serif;
+        font-size: 0.75rem;
+        color: var(--rdr-sepia);
+        letter-spacing: 3px;
+        font-style: italic;
+        opacity: 0.6;
     }
     
     .main-header h1 {
-        color: white;
-        margin: 0;
-        font-size: 2.5rem;
-        font-weight: 700;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        font-family: 'Rye', cursive;
+        color: var(--rdr-brown-dark);
+        margin: 15px 0;
+        font-size: 3rem;
+        font-weight: 400;
+        text-shadow: 
+            2px 2px 0 rgba(212, 197, 169, 0.8),
+            -1px -1px 0 rgba(0, 0, 0, 0.1);
+        letter-spacing: 4px;
+        text-transform: uppercase;
     }
     
     .main-header p {
-        color: rgba(255, 255, 255, 0.85);
-        margin: 10px 0 0 0;
-        font-size: 1.1rem;
+        font-family: 'IM Fell English', serif;
+        color: var(--rdr-sepia);
+        margin: 10px 0 15px 0;
+        font-size: 1.15rem;
+        font-style: italic;
+        letter-spacing: 1px;
     }
     
-    /* Tarjetas de sección */
+    /* Tarjetas de sección - Estilo cuero curtido */
     .section-card {
-        background: var(--bg-card);
-        padding: 20px;
+        background: 
+            /* Textura de cuero */
+            linear-gradient(145deg, rgba(74, 55, 40, 0.95) 0%, rgba(42, 28, 15, 0.98) 50%, rgba(26, 17, 8, 0.99) 100%),
+            url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80');
+        background-size: cover;
+        padding: 25px;
         border-radius: var(--border-radius);
         margin-bottom: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: all 0.3s ease;
+        border: 3px solid var(--rdr-leather-dark);
+        box-shadow: 
+            inset 0 2px 4px rgba(255,255,255,0.05),
+            inset 0 -2px 4px rgba(0,0,0,0.3),
+            inset 0 0 40px rgba(0,0,0,0.4),
+            0 6px 20px rgba(0,0,0,0.5);
+        position: relative;
+    }
+    
+    /* Efecto de costuras en las tarjetas */
+    .section-card::before {
+        content: "";
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        border: 1px dashed rgba(201, 162, 39, 0.2);
+        border-radius: 2px;
+        pointer-events: none;
     }
     
     .section-card:hover {
-        border-color: rgba(255, 107, 53, 0.3);
-        box-shadow: 0 4px 20px rgba(255, 107, 53, 0.1);
+        border-color: var(--rdr-gold-dark);
+        box-shadow: 
+            inset 0 2px 4px rgba(255,255,255,0.08),
+            inset 0 -2px 4px rgba(0,0,0,0.3),
+            inset 0 0 40px rgba(0,0,0,0.4),
+            0 8px 25px rgba(201, 162, 39, 0.15);
     }
     
     .section-title {
-        color: var(--primary-color);
-        font-size: 1.3rem;
+        font-family: 'Cinzel', serif;
+        color: var(--rdr-gold);
         font-weight: 600;
         margin-bottom: 15px;
         display: flex;
         align-items: center;
         gap: 10px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        border-bottom: 1px solid var(--rdr-leather);
+        padding-bottom: 10px;
     }
     
-    /* Ingredientes */
+    /* Ingredientes - Estilo lista de materiales */
     .ingredient-box {
-        background: linear-gradient(135deg, #1a1d24 0%, #262b36 100%);
-        padding: 15px;
-        border-radius: 10px;
-        margin: 8px 0;
-        border-left: 4px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(139, 69, 19, 0.3) 0%, rgba(61, 41, 20, 0.5) 100%);
+        padding: 15px 20px;
+        border-radius: var(--border-radius);
+        margin: 10px 0;
+        border-left: 4px solid var(--rdr-gold);
+        border-right: 1px solid var(--rdr-leather);
+        border-top: 1px solid rgba(139, 69, 19, 0.3);
+        border-bottom: 1px solid rgba(139, 69, 19, 0.3);
         display: flex;
         align-items: center;
         justify-content: space-between;
-        transition: all 0.2s ease;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .ingredient-box::before {
+        content: "◆";
+        position: absolute;
+        left: -12px;
+        color: var(--rdr-gold);
+        font-size: 0.6rem;
     }
     
     .ingredient-box:hover {
-        transform: translateX(5px);
-        background: linear-gradient(135deg, #262b36 0%, #2d323d 100%);
+        transform: translateX(8px);
+        background: linear-gradient(90deg, rgba(201, 162, 39, 0.15) 0%, rgba(61, 41, 20, 0.6) 100%);
+        border-left-color: var(--rdr-gold-light);
     }
     
     .ingredient-info {
@@ -123,26 +248,34 @@ st.markdown("""
     }
     
     .ingredient-name {
+        font-family: 'Cinzel', serif;
         font-weight: 600;
-        color: var(--text-primary);
+        color: var(--rdr-cream);
+        text-transform: uppercase;
+        font-size: 0.9rem;
+        letter-spacing: 1px;
     }
     
     .ingredient-id {
-        color: var(--text-secondary);
+        font-family: 'IM Fell English', serif;
+        color: var(--rdr-parchment);
         font-size: 0.85rem;
-        font-family: monospace;
+        font-style: italic;
+        opacity: 0.8;
     }
     
     .ingredient-count {
-        background: var(--primary-color);
-        color: white;
-        padding: 5px 12px;
-        border-radius: 20px;
+        background: linear-gradient(135deg, var(--rdr-gold) 0%, var(--rdr-gold-light) 100%);
+        color: var(--rdr-brown-dark);
+        padding: 6px 14px;
+        border-radius: 2px;
+        font-family: 'Cinzel', serif;
         font-weight: 700;
         font-size: 0.9rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
     
-    /* Stats cards */
+    /* Stats cards - Estilo WANTED POSTER pequeño */
     .stats-container {
         display: flex;
         gap: 15px;
@@ -150,177 +283,480 @@ st.markdown("""
     }
     
     .stat-card {
-        background: var(--bg-card);
-        padding: 15px 20px;
-        border-radius: 10px;
+        background: 
+            linear-gradient(rgba(212, 197, 169, 0.95), rgba(188, 169, 129, 0.92)),
+            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=400&q=60');
+        background-size: cover;
+        padding: 20px;
+        border-radius: var(--border-radius);
         flex: 1;
         text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 3px solid var(--rdr-brown);
+        box-shadow: 
+            0 0 0 1px var(--rdr-leather-dark),
+            inset 0 0 25px rgba(139, 69, 19, 0.2),
+            0 5px 15px rgba(0,0,0,0.4);
+        position: relative;
+        /* Efecto de papel rasgado */
+        clip-path: polygon(
+            1% 0%, 99% 1%, 100% 99%, 0% 98%
+        );
+    }
+    
+    .stat-card::before {
+        content: "★";
+        position: absolute;
+        top: 5px;
+        right: 8px;
+        color: var(--rdr-red);
+        font-size: 0.9rem;
+        text-shadow: 0 0 2px rgba(0,0,0,0.3);
+    }
+    
+    .stat-card::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(139, 69, 19, 0.03) 2px,
+            rgba(139, 69, 19, 0.03) 4px
+        );
+        pointer-events: none;
     }
     
     .stat-number {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--primary-color);
+        font-family: 'Rye', cursive;
+        font-size: 2.4rem;
+        font-weight: 400;
+        color: var(--rdr-red-dark);
+        text-shadow: 1px 1px 0 rgba(255,255,255,0.4);
+        position: relative;
+        z-index: 1;
     }
     
     .stat-label {
-        color: var(--text-secondary);
-        font-size: 0.85rem;
+        font-family: 'Cinzel', serif;
+        color: var(--rdr-brown);
+        font-size: 0.8rem;
         margin-top: 5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        position: relative;
+        z-index: 1;
     }
     
-    /* Job badges */
+    /* Job badges - Estilo placas de sheriff */
     .job-badge {
         display: inline-block;
-        padding: 8px 16px;
-        border-radius: 25px;
-        font-size: 0.9rem;
+        padding: 10px 18px;
+        border-radius: 2px;
+        font-family: 'Cinzel', serif;
+        font-size: 0.8rem;
         font-weight: 600;
         margin: 4px;
-        background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-hover) 100%);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: all 0.2s ease;
+        background: 
+            linear-gradient(145deg, rgba(74, 55, 40, 0.95) 0%, rgba(42, 28, 15, 0.98) 100%),
+            url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200&q=60');
+        background-size: cover;
+        border: 2px solid var(--rdr-gold-dark);
+        color: var(--rdr-gold);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        box-shadow: 
+            inset 0 1px 2px rgba(255,255,255,0.1),
+            0 3px 8px rgba(0,0,0,0.4);
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .job-badge::before {
+        content: "◆";
+        margin-right: 6px;
+        font-size: 0.6rem;
+        opacity: 0.7;
     }
     
     .job-badge:hover {
-        transform: scale(1.05);
-        border-color: var(--primary-color);
+        transform: scale(1.05) translateY(-2px);
+        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-gold-dark) 100%);
+        color: var(--rdr-brown-dark);
+        border-color: var(--rdr-gold-light);
+        box-shadow: 
+            0 6px 20px rgba(201, 162, 39, 0.4),
+            inset 0 1px 3px rgba(255,255,255,0.2);
     }
     
-    /* Resumen crafteo */
+    /* Resumen crafteo - Estilo receta/documento antiguo */
     .craft-summary {
-        background: linear-gradient(135deg, #1a2a1a 0%, #1a1d24 100%);
-        border: 1px solid var(--success-color);
+        background: 
+            linear-gradient(rgba(212, 197, 169, 0.97), rgba(196, 176, 137, 0.95)),
+            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=800&q=70');
+        background-size: cover;
+        border: none;
         border-radius: var(--border-radius);
-        padding: 20px;
+        padding: 30px;
         margin: 15px 0;
+        box-shadow: 
+            0 0 0 2px var(--rdr-brown),
+            0 0 0 4px var(--rdr-leather-dark),
+            inset 0 0 40px rgba(139, 69, 19, 0.15),
+            0 8px 25px rgba(0,0,0,0.4);
+        position: relative;
+    }
+    
+    .craft-summary::before {
+        content: "✦ RECETA DE CRAFTEO ✦";
+        position: absolute;
+        top: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: 'Rye', cursive;
+        font-size: 0.75rem;
+        color: var(--rdr-sepia);
+        background: var(--rdr-parchment);
+        padding: 4px 15px;
+        letter-spacing: 2px;
+        border: 1px solid var(--rdr-leather);
+    }
+    
+    .craft-summary::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 3px,
+            rgba(139, 69, 19, 0.02) 3px,
+            rgba(139, 69, 19, 0.02) 6px
+        );
+        pointer-events: none;
+        border-radius: var(--border-radius);
     }
     
     .craft-summary-title {
-        color: var(--success-color);
-        font-size: 1.2rem;
-        font-weight: 600;
-        margin-bottom: 15px;
+        font-family: 'Rye', cursive;
+        color: var(--rdr-red-dark);
+        font-size: 1.4rem;
+        font-weight: 400;
+        margin-bottom: 20px;
+        text-align: center;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        position: relative;
+        z-index: 1;
     }
     
     .summary-row {
         display: flex;
         justify-content: space-between;
-        padding: 8px 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding: 12px 0;
+        border-bottom: 1px dashed rgba(139, 69, 19, 0.4);
+        position: relative;
+        z-index: 1;
     }
     
     .summary-label {
-        color: var(--text-secondary);
+        font-family: 'IM Fell English', serif;
+        color: var(--rdr-sepia);
+        font-style: italic;
+        font-size: 1rem;
     }
     
     .summary-value {
-        color: var(--text-primary);
-        font-weight: 500;
-    }
-    
-    /* Código Lua */
-    .lua-code-container {
-        background: #1e1e1e;
-        border-radius: var(--border-radius);
-        border: 1px solid #333;
-        overflow: hidden;
-    }
-    
-    .lua-code-header {
-        background: #2d2d2d;
-        padding: 10px 15px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #333;
-    }
-    
-    .lua-code-title {
-        color: var(--primary-color);
+        font-family: 'Cinzel', serif;
+        color: var(--rdr-brown-dark);
         font-weight: 600;
     }
     
-    /* Botones personalizados */
+    /* Código Lua - Estilo telegrama/documento oficial */
+    .lua-code-container {
+        background: 
+            linear-gradient(rgba(30, 24, 18, 0.98), rgba(22, 18, 14, 0.99)),
+            url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=60');
+        background-size: cover;
+        border-radius: var(--border-radius);
+        border: 3px solid var(--rdr-leather-dark);
+        overflow: hidden;
+        box-shadow: 
+            inset 0 0 30px rgba(0,0,0,0.6),
+            0 6px 20px rgba(0,0,0,0.5);
+    }
+    
+    .lua-code-header {
+        background: 
+            linear-gradient(90deg, rgba(61, 41, 20, 0.95) 0%, rgba(92, 61, 30, 0.9) 50%, rgba(61, 41, 20, 0.95) 100%);
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid var(--rdr-gold);
+        position: relative;
+    }
+    
+    .lua-code-header::before {
+        content: "◆ CÓDIGO LUA ◆";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-family: 'Cinzel', serif;
+        font-size: 0.7rem;
+        color: var(--rdr-gold);
+        letter-spacing: 3px;
+        opacity: 0.6;
+    }
+    
+    .lua-code-title {
+        font-family: 'Cinzel', serif;
+        color: var(--rdr-gold);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+    
+    /* Botones personalizados - Estilo western */
     .stButton > button {
-        border-radius: 10px !important;
+        font-family: 'Cinzel', serif !important;
+        border-radius: 2px !important;
         font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
         transition: all 0.3s ease !important;
+        border: 2px solid var(--rdr-gold) !important;
+        background: 
+            linear-gradient(145deg, rgba(74, 55, 40, 0.95) 0%, rgba(42, 28, 15, 0.98) 100%) !important;
+        color: var(--rdr-gold) !important;
+        box-shadow: 
+            inset 0 1px 2px rgba(255,255,255,0.1),
+            0 3px 8px rgba(0,0,0,0.3) !important;
     }
     
     .stButton > button:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3) !important;
+        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-gold-dark) 100%) !important;
+        color: var(--rdr-brown-dark) !important;
+        box-shadow: 
+            0 6px 20px rgba(201, 162, 39, 0.4),
+            inset 0 1px 3px rgba(255,255,255,0.2) !important;
     }
     
-    /* Download button */
+    /* Download button - Estilo REWARD/BOUNTY */
     .stDownloadButton > button {
-        background: linear-gradient(135deg, var(--success-color) 0%, #00b359 100%) !important;
-        border: none !important;
-        border-radius: 10px !important;
-        font-weight: 600 !important;
+        background: 
+            linear-gradient(145deg, var(--rdr-red) 0%, var(--rdr-red-dark) 100%) !important;
+        border: 3px solid var(--rdr-gold) !important;
+        border-radius: 2px !important;
+        font-family: 'Rye', cursive !important;
+        font-weight: 400 !important;
+        color: var(--rdr-gold) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 2px !important;
+        box-shadow: 
+            0 0 0 1px var(--rdr-brown-dark),
+            0 4px 12px rgba(139, 0, 0, 0.4) !important;
     }
     
     .stDownloadButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 15px rgba(0, 210, 106, 0.4) !important;
+        transform: translateY(-3px) scale(1.02) !important;
+        background: linear-gradient(145deg, #a50000 0%, var(--rdr-red) 100%) !important;
+        box-shadow: 
+            0 0 0 1px var(--rdr-gold),
+            0 8px 25px rgba(139, 0, 0, 0.5) !important;
     }
     
     /* Selectbox mejorado */
     .stSelectbox > div > div {
-        border-radius: 10px !important;
+        border-radius: 2px !important;
+        border: 2px solid var(--rdr-leather) !important;
+        background: var(--rdr-brown-dark) !important;
+        font-family: 'Cinzel', serif !important;
     }
     
-    /* Expander */
+    .stSelectbox label {
+        font-family: 'Cinzel', serif !important;
+        color: var(--rdr-gold) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+    }
+    
+    /* Number input */
+    .stNumberInput > div > div > input {
+        border: 2px solid var(--rdr-leather) !important;
+        border-radius: 2px !important;
+        background: var(--rdr-brown-dark) !important;
+        color: var(--rdr-cream) !important;
+        font-family: 'Cinzel', serif !important;
+    }
+    
+    .stNumberInput label {
+        font-family: 'Cinzel', serif !important;
+        color: var(--rdr-gold) !important;
+    }
+    
+    /* Text input */
+    .stTextInput > div > div > input {
+        border: 2px solid var(--rdr-leather) !important;
+        border-radius: 2px !important;
+        background: var(--rdr-brown-dark) !important;
+        color: var(--rdr-cream) !important;
+        font-family: 'IM Fell English', serif !important;
+    }
+    
+    .stTextInput label {
+        font-family: 'Cinzel', serif !important;
+        color: var(--rdr-gold) !important;
+        text-transform: uppercase !important;
+    }
+    
+    /* Expander - Estilo acordeón western */
     .streamlit-expanderHeader {
-        background: var(--bg-card) !important;
-        border-radius: 10px !important;
+        background: linear-gradient(90deg, var(--rdr-brown) 0%, var(--rdr-brown-light) 100%) !important;
+        border: 2px solid var(--rdr-leather) !important;
+        border-radius: 2px !important;
+        font-family: 'Cinzel', serif !important;
+        color: var(--rdr-gold) !important;
     }
     
-    /* Sidebar */
+    /* Sidebar - Estilo tablón de madera del saloon */
     .css-1d391kg, [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0e1117 0%, #1a1d24 100%);
+        background: 
+            linear-gradient(rgba(26, 17, 8, 0.94), rgba(42, 28, 15, 0.96)),
+            url('https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=500&q=80');
+        background-size: cover;
+        background-position: center;
+        border-right: 4px solid var(--rdr-leather-dark);
+        box-shadow: 
+            inset -5px 0 20px rgba(0,0,0,0.3),
+            5px 0 15px rgba(0,0,0,0.4);
+    }
+    
+    [data-testid="stSidebar"]::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 48px,
+            rgba(0,0,0,0.1) 48px,
+            rgba(0,0,0,0.1) 50px
+        );
+        pointer-events: none;
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        font-family: 'IM Fell English', serif;
     }
     
     .sidebar-stat {
-        background: var(--bg-card);
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
+        background: 
+            linear-gradient(145deg, rgba(212, 197, 169, 0.92), rgba(188, 169, 129, 0.88)),
+            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=300&q=60');
+        background-size: cover;
+        padding: 20px 15px;
+        border-radius: 2px;
+        margin: 12px 5px;
         text-align: center;
+        border: 2px solid var(--rdr-brown);
+        box-shadow: 
+            0 0 0 1px var(--rdr-leather-dark),
+            inset 0 0 20px rgba(139, 69, 19, 0.15),
+            0 4px 12px rgba(0,0,0,0.4);
+        position: relative;
+    }
+    
+    .sidebar-stat::before {
+        content: "★";
+        position: absolute;
+        top: 3px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: var(--rdr-red-dark);
+        font-size: 0.6rem;
     }
     
     .sidebar-stat-number {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: var(--primary-color);
+        font-family: 'Rye', cursive;
+        font-size: 2.2rem;
+        font-weight: 400;
+        color: var(--rdr-red-dark);
+        text-shadow: 1px 1px 0 rgba(255,255,255,0.3);
     }
     
     .sidebar-stat-label {
-        color: var(--text-secondary);
-        font-size: 0.8rem;
+        font-family: 'Cinzel', serif;
+        color: var(--rdr-brown);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-top: 5px;
     }
     
-    /* Info boxes */
+    /* Info boxes - Estilo nota clavada */
     .info-tip {
-        background: linear-gradient(135deg, #1a2a3a 0%, #1a1d24 100%);
-        border-left: 4px solid var(--secondary-color);
-        padding: 15px;
-        border-radius: 0 10px 10px 0;
-        margin: 10px 0;
+        background: 
+            linear-gradient(rgba(212, 197, 169, 0.95), rgba(196, 176, 137, 0.9));
+        border-left: none;
+        border: 2px solid var(--rdr-brown);
+        padding: 15px 20px;
+        border-radius: 2px;
+        margin: 12px 5px;
+        font-family: 'IM Fell English', serif;
+        color: var(--rdr-sepia);
+        box-shadow: 
+            3px 3px 8px rgba(0,0,0,0.3),
+            inset 0 0 15px rgba(139, 69, 19, 0.1);
+        position: relative;
+        transform: rotate(-0.5deg);
+    }
+    
+    .info-tip::before {
+        content: "📌";
+        position: absolute;
+        top: -8px;
+        left: 10px;
+        font-size: 1rem;
+        font-style: normal;
+    }
+    
+    .info-tip strong {
+        font-style: normal;
     }
     
     /* Empty state */
     .empty-state {
         text-align: center;
-        padding: 40px 20px;
-        color: var(--text-secondary);
+        padding: 50px 20px;
+        color: var(--rdr-parchment);
+        font-family: 'IM Fell English', serif;
     }
     
     .empty-state-icon {
-        font-size: 3rem;
+        font-size: 3.5rem;
         margin-bottom: 15px;
+        font-style: normal !important;
+    }
+    
+    /* Divider decorativo */
+    .western-divider {
+        text-align: center;
+        margin: 20px 0;
+        color: var(--rdr-gold);
+        font-size: 1.2rem;
+        letter-spacing: 10px;
     }
     
     /* Animations */
@@ -330,36 +766,117 @@ st.markdown("""
     }
     
     .animate-in {
-        animation: fadeIn 0.3s ease-out;
+        animation: fadeIn 0.4s ease-out;
     }
     
-    /* Scrollbar */
+    /* Scrollbar - Estilo cuero */
     ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 12px;
+        height: 12px;
     }
     
     ::-webkit-scrollbar-track {
-        background: var(--bg-dark);
+        background: var(--rdr-brown-dark);
+        border: 1px solid var(--rdr-leather);
     }
     
     ::-webkit-scrollbar-thumb {
-        background: var(--primary-color);
-        border-radius: 4px;
+        background: linear-gradient(145deg, var(--rdr-leather) 0%, var(--rdr-brown) 100%);
+        border-radius: 2px;
+        border: 1px solid var(--rdr-gold);
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: #ff8c5a;
+        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-leather) 100%);
     }
     
     /* Code block */
     code {
         white-space: pre-wrap !important;
+        font-family: 'Courier New', monospace !important;
+        background: var(--rdr-brown-dark) !important;
+        color: var(--rdr-gold) !important;
+    }
+    
+    /* Tabs - Estilo pestañas de saloon */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+        background: var(--rdr-brown-dark);
+        padding: 5px;
+        border-radius: 2px;
+        border: 2px solid var(--rdr-leather);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'Cinzel', serif !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--rdr-parchment);
+        background: transparent;
+        border-radius: 2px;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-gold-light) 100%) !important;
+        color: var(--rdr-brown-dark) !important;
+    }
+    
+    /* Checkbox */
+    .stCheckbox label {
+        font-family: 'IM Fell English', serif !important;
+        color: var(--rdr-parchment) !important;
+    }
+    
+    /* Success/Error messages */
+    .stSuccess {
+        background: linear-gradient(90deg, rgba(34, 139, 34, 0.2) 0%, transparent 100%) !important;
+        border-left: 4px solid #228b22 !important;
+        font-family: 'IM Fell English', serif !important;
+    }
+    
+    .stError {
+        background: linear-gradient(90deg, rgba(139, 0, 0, 0.2) 0%, transparent 100%) !important;
+        border-left: 4px solid var(--rdr-red) !important;
+        font-family: 'IM Fell English', serif !important;
+    }
+    
+    /* Decoración de esquinas */
+    .corner-decoration {
+        position: relative;
+    }
+    
+    .corner-decoration::before,
+    .corner-decoration::after {
+        content: "✦";
+        color: var(--rdr-gold);
+        position: absolute;
+        font-size: 0.8rem;
+    }
+    
+    .corner-decoration::before {
+        top: 5px;
+        left: 5px;
+    }
+    
+    .corner-decoration::after {
+        bottom: 5px;
+        right: 5px;
     }
     
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* Custom footer */
+    .rdr-footer {
+        text-align: center;
+        padding: 20px;
+        margin-top: 30px;
+        border-top: 2px solid var(--rdr-leather);
+        font-family: 'IM Fell English', serif;
+        color: var(--rdr-parchment);
+        font-style: italic;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -412,29 +929,34 @@ if 'search_ingrediente' not in st.session_state:
 # ============================================================================
 st.markdown("""
 <div class="main-header animate-in">
-    <h1>🔨 Generador de Crafteos RedM</h1>
-    <p>VORP Crafting System - Herramienta de Configuración para La Hermandad</p>
+    <h1>⚒️ CRAFTSMAN'S FORGE</h1>
+    <p>~ VORP Crafting System ~ Herramienta de Configuración para La Hermandad ~</p>
 </div>
+<div class="western-divider">✦ ✦ ✦</div>
 """, unsafe_allow_html=True)
 
 # ============================================================================
 # SIDEBAR - INFORMACIÓN Y ESTADÍSTICAS
 # ============================================================================
 with st.sidebar:
-    st.markdown("### 📊 Estadísticas")
+    st.markdown("""
+    <div style="text-align: center; padding: 10px 0 20px 0;">
+        <span style="font-family: 'Rye', cursive; font-size: 1.5rem; color: #c9a227;">⭐ REGISTRO ⭐</span>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Stats
     st.markdown(f"""
     <div class="sidebar-stat">
         <div class="sidebar-stat-number">{len(ALL_ITEMS):,}</div>
-        <div class="sidebar-stat-label">Items Disponibles</div>
+        <div class="sidebar-stat-label">📦 Objetos en Almacén</div>
     </div>
     """, unsafe_allow_html=True)
     
     st.markdown(f"""
     <div class="sidebar-stat">
         <div class="sidebar-stat-number">{len(JOBS)}</div>
-        <div class="sidebar-stat-label">Categorías</div>
+        <div class="sidebar-stat-label">🏪 Oficios Registrados</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -443,7 +965,7 @@ with st.sidebar:
         st.markdown(f"""
         <div class="sidebar-stat">
             <div class="sidebar-stat-number">{len(st.session_state.recompensas)}</div>
-            <div class="sidebar-stat-label">Recompensas</div>
+            <div class="sidebar-stat-label">🎁 Productos</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -451,14 +973,18 @@ with st.sidebar:
         st.markdown(f"""
         <div class="sidebar-stat">
             <div class="sidebar-stat-number">{len(st.session_state.ingredientes)}</div>
-            <div class="sidebar-stat-label">Ingredientes</div>
+            <div class="sidebar-stat-label">🧰 Materiales</div>
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("---")
+    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
     
     # Jobs disponibles con badges
-    st.markdown("### 📋 Categorías")
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 15px;">
+        <span style="font-family: 'Cinzel', serif; font-size: 1rem; color: #c9a227; text-transform: uppercase; letter-spacing: 2px;">Oficios Disponibles</span>
+    </div>
+    """, unsafe_allow_html=True)
     
     jobs_html = ""
     for job_key, job_data in JOBS.items():
@@ -466,19 +992,31 @@ with st.sidebar:
     
     st.markdown(f'<div style="line-height: 2.5;">{jobs_html}</div>', unsafe_allow_html=True)
     
-    st.markdown("---")
+    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
     
     # Tips
-    st.markdown("### 💡 Tips")
     st.markdown("""
-    <div class="info-tip">
-        <strong>Búsqueda rápida:</strong> Usa el campo de búsqueda para filtrar entre los +1000 items disponibles.
+    <div style="text-align: center; margin-bottom: 15px;">
+        <span style="font-family: 'Cinzel', serif; font-size: 1rem; color: #c9a227; text-transform: uppercase; letter-spacing: 2px;">📜 Consejos del Viejo Oeste</span>
     </div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
     <div class="info-tip">
-        <strong>Ingredientes:</strong> Puedes añadir el mismo ingrediente varias veces con diferentes cantidades.
+        <strong>🔍 Búsqueda:</strong> El campo de búsqueda te permite encontrar entre más de 1000 objetos del territorio.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="info-tip">
+        <strong>📦 Materiales:</strong> Un mismo material puede añadirse varias veces con diferentes cantidades.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="rdr-footer">
+        "En el Oeste, los artesanos forjan su destino"<br>
+        <small>~ La Hermandad ~</small>
     </div>
     """, unsafe_allow_html=True)
 
@@ -491,12 +1029,16 @@ col_form, col_output = st.columns([1, 1], gap="large")
 # COLUMNA IZQUIERDA - FORMULARIO
 # ============================================================================
 with col_form:
-    st.markdown("## 📝 Configurar Crafteo")
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 20px;">
+        <span style="font-family: 'Rye', cursive; font-size: 1.8rem; color: #c9a227;">📝 RECETA DE CRAFTEO</span>
+    </div>
+    """, unsafe_allow_html=True)
     
     # ----- PASO 1: SELECCIONAR JOB -----
     st.markdown("""
     <div class="section-card">
-        <div class="section-title">🏷️ Paso 1: Categoría</div>
+        <div class="section-title">🏷️ Seleccionar Oficio</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -517,10 +1059,31 @@ with col_form:
     
     job_data = JOBS[job_seleccionado]
     
+    # Categoría del crafteo (puede ser diferente al job del config)
+    st.markdown("""
+    <div class="info-tip">
+        <strong>Categoría del crafteo:</strong> Define en qué menú aparecerá este crafteo para el jugador.
+        Por defecto coincide con el oficio, pero puedes cambiarlo.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Obtener el índice por defecto basado en el job seleccionado
+    default_category = job_data['category']
+    category_keys = list(CATEGORIAS_CRAFTEO.keys())
+    default_index = category_keys.index(default_category) if default_category in category_keys else 0
+    
+    categoria_crafteo = st.selectbox(
+        "Categoría del Crafteo",
+        options=category_keys,
+        index=default_index,
+        format_func=lambda x: CATEGORIAS_CRAFTEO[x],
+        help="En qué categoría aparecerá este crafteo en el menú del jugador"
+    )
+    
     # ----- PASO 2: INFORMACIÓN BÁSICA -----
     st.markdown("""
     <div class="section-card">
-        <div class="section-title">✏️ Paso 2: Información Básica</div>
+        <div class="section-title">✏️ Detalles del Producto</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -558,7 +1121,7 @@ with col_form:
     # ----- PASO 3: RECOMPENSAS -----
     st.markdown("""
     <div class="section-card">
-        <div class="section-title">🎁 Paso 3: Recompensas</div>
+        <div class="section-title">🎁 Productos a Fabricar</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -678,7 +1241,7 @@ with col_form:
     # ----- PASO 4: INGREDIENTES -----
     st.markdown("""
     <div class="section-card">
-        <div class="section-title">🧪 Paso 4: Ingredientes</div>
+        <div class="section-title">🧪 Materiales Requeridos</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -860,13 +1423,13 @@ with col_output:
         desc_parts = [f"{ing['count']}x {ing['label']}" for ing in st.session_state.ingredientes]
         descripcion = ", ".join(desc_parts)
         
-        category = job_data['category']
+        # Usar la categoría seleccionada por el usuario
         job_value = job_data['job_value']
         
         datos_crafteo = {
             'nombre': nombre,
             'descripcion': descripcion,
-            'categoria': category,
+            'categoria': categoria_crafteo,
             'tipo': tipo,
             'nivel_minimo': nivel_minimo,
             'recompensas': st.session_state.recompensas,

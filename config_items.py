@@ -35,95 +35,96 @@ ALL_ITEMS = load_all_items()
 # ============================================================================
 # JOBS/CATEGORÍAS DISPONIBLES
 # ============================================================================
+# Los 'category' deben coincidir con los ident de Config.Categories en config.lua
 JOBS = {
     'agricultor': {
         'nombre': '🌾 Agricultor',
-        'category': 'agricultor',
+        'category': 'agricultor',  # Coincide con config.lua
         'job_value': 0,  # 0 = cualquiera puede craftear
     },
     'armero': {
         'nombre': '🔫 Armero',
-        'category': 'Armero',
+        'category': 'Armero',  # Coincide con config.lua (mayúscula)
         'job_value': 0,
     },
     'artesano': {
         'nombre': '🎨 Artesano',
-        'category': 'artesano',
+        'category': 'Artesano',  # Corregido: mayúscula en config.lua
         'job_value': 0,
     },
     'bandas': {
         'nombre': '💀 Bandas',
-        'category': 'bandas',
+        'category': 'MesaHerreroBanda',  # Usa Mesa Herrero de banda
         'job_value': 0,
     },
     'cocinaDulce': {
         'nombre': '🍰 Cocina Dulce',
-        'category': 'cocinaDulce',
+        'category': 'CocinaDulce',  # Corregido: CamelCase en config.lua
         'job_value': 0,
     },
     'cocinaMixta': {
         'nombre': '🍲 Cocina Mixta',
-        'category': 'cocinaMixta',
+        'category': 'CocinaMixta',  # Corregido: CamelCase en config.lua
         'job_value': 0,
     },
     'cocinaPacks': {
         'nombre': '📦 Cocina Packs',
-        'category': 'cocinaPacks',
+        'category': 'CocinaPacks',  # Corregido: CamelCase en config.lua
         'job_value': 0,
     },
     'cocinaTier1': {
         'nombre': '🍳 Cocina Tier 1',
-        'category': 'cocinaTier1',
+        'category': 'CocinaTier1',  # Corregido: CamelCase en config.lua
         'job_value': 0,
     },
     'cocinaTier2': {
         'nombre': '👨‍🍳 Cocina Tier 2',
-        'category': 'cocinaTier2',
+        'category': 'CocinaTier2',  # Corregido: CamelCase en config.lua
         'job_value': 0,
     },
     'cocinaTier3': {
         'nombre': '👩‍🍳 Cocina Tier 3',
-        'category': 'cocinaTier3',
+        'category': 'CocinaTier3',  # Corregido: CamelCase en config.lua
         'job_value': 0,
     },
     'destilador': {
         'nombre': '🥃 Destilador',
-        'category': 'Destilador',
+        'category': 'Destilador',  # Coincide con config.lua
         'job_value': 0,
     },
     'distribuidora': {
         'nombre': '🚚 Distribuidora',
-        'category': 'distribuidora',
+        'category': 'Distribuidora',  # Corregido: mayúscula en config.lua
         'job_value': 0,
     },
     'establo': {
         'nombre': '🐴 Establo',
-        'category': 'Establo',
+        'category': 'Establo',  # Coincide con config.lua
         'job_value': 0,
     },
     'ganadero': {
         'nombre': '🐄 Ganadero',
-        'category': 'ganadero',
+        'category': 'Ganadero',  # Corregido: mayúscula en config.lua
         'job_value': 0,
     },
     'medicos': {
         'nombre': '⚕️ Médicos',
-        'category': 'Medico',
+        'category': 'Medico',  # Coincide con config.lua
         'job_value': '{"medicoAR", "medicoBW", "medicoMF"}',
     },
     'perista': {
         'nombre': '💰 Perista',
-        'category': 'perista',
+        'category': 'Perista',  # Corregido: mayúscula en config.lua
         'job_value': 0,
     },
     'pescadero': {
         'nombre': '🎣 Pescadero',
-        'category': 'pescadero',
+        'category': 'Pescadero',  # Corregido: mayúscula en config.lua
         'job_value': 0,
     },
     'tabacalero': {
         'nombre': '🚬 Tabacalero',
-        'category': 'tabacalero',
+        'category': 'Tabacalero',  # Corregido: mayúscula en config.lua
         'job_value': 0,
     },
 }
@@ -170,12 +171,48 @@ def get_items_ingredientes():
 ITEMS_INGREDIENTES = get_items_ingredientes()
 
 # ============================================================================
-# ANIMACIONES DISPONIBLES
+# ANIMACIONES DISPONIBLES (sincronizadas con Config.Animations del servidor)
 # ============================================================================
 ANIMACIONES = {
-    'craft': 'Crafteo genérico',
-    'cooking': 'Cocinando',
-    'medical': 'Médico',
-    'brewing': 'Destilando',
-    'smithing': 'Herrería',
+    'craft': '🛠️ Crafteo genérico (por defecto)',
+    'CocinaTier3': '🧂 Cocina avanzada (con salero)',
+    'spindlecook': '🍖 Asar en pincho (carne en palo)',
+    'knifecooking': '🔪 Cocinar con cuchillo',
+    'campfire': '🔥 Encender fogata',
+}
+
+# ============================================================================
+# CATEGORÍAS DE CRAFTEO DISPONIBLES (sincronizadas con Config.Categories)
+# ============================================================================
+# Los ident deben coincidir EXACTAMENTE con los del config.lua del servidor
+CATEGORIAS_CRAFTEO = {
+    # Categorías generales
+    'food': '🍔 Comida (general)',
+    'items': '📦 Items (general)',
+    'weapons': '🔫 Armas',
+    'meleeweapons': '🗡️ Armas cuerpo a cuerpo',
+    'cocina': '🍳 Cocina (general)',
+    'empty': '📝 Elaboraciones (vacío)',
+    # Cocina por tiers
+    'CocinaTier1': '🍳 Cocina Tier 1 (básica)',
+    'CocinaTier2': '👨‍🍳 Cocina Tier 2 (media)',
+    'CocinaTier3': '👩‍🍳 Cocina Tier 3 (avanzada)',
+    'CocinaDulce': '🍰 Cocina Dulce',
+    'CocinaMixta': '🍲 Cocina Mixta',
+    'CocinaPacks': '🍽️ Cocina Packs (especialidades)',
+    # Oficios
+    'agricultor': '🌾 Agricultor',
+    'Ganadero': '🐄 Ganadero',
+    'Pescadero': '🎣 Pescadero',
+    'Tabacalero': '🚬 Tabacalero',
+    'Destilador': '🥃 Destilador',
+    'Distribuidora': '🚚 Distribuidora',
+    'Artesano': '🎨 Artesano',
+    'Armero': '🔫 Armero',
+    'Establo': '🐴 Establo',
+    'Perista': '💎 Perista',
+    'Medico': '⚕️ Médico',
+    # Bandas
+    'MesaHerreroBanda': '🛠️ Mesa Herrero (Banda)',
+    'MesaEnfermeriaBanda': '🩺 Mesa Enfermería (Banda)',
 }
