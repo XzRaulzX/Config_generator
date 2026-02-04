@@ -147,7 +147,7 @@ with col_form:
     )
     
     # Tipo de crafteo - dinámico según el job
-    if job_seleccionado == 'armero':
+    if job_seleccionado in ['armero', 'bandas']:
         tipo_options = {'item': 'Item Normal', 'weapon': 'Arma'}
     else:
         tipo_options = {'item': 'Item Normal'}
