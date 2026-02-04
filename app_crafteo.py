@@ -385,15 +385,20 @@ with col_output:
         # Mostrar resumen
         st.success("✅ Crafteo configurado correctamente")
         
+        # Construir lista de ingredientes para el resumen
+        ingredientes_resumen = "\n".join([f"  - {ing['count']}x {ing['label']} (`{ing['name']}`)" for ing in st.session_state.ingredientes])
+        
         st.info(f"""
 **📋 Resumen:**
 - **Job:** {job_data['nombre']}
 - **Nombre:** {nombre}
 - **Tipo:** {tipo_options.get(tipo, tipo)}
-- **Recompensa:** {cantidad_recompensa}x {recompensa_label}
-- **Ingredientes:** {len(st.session_state.ingredientes)}
+- **Recompensa:** {cantidad_recompensa}x {recompensa_label} (`{recompensa}`)
 - **Nivel mínimo:** {nivel_minimo}
 - **Archivo destino:** `config_{job_seleccionado}.lua`
+
+**🧪 Ingredientes ({len(st.session_state.ingredientes)}):**
+{ingredientes_resumen}
         """)
         
         # Mostrar código
