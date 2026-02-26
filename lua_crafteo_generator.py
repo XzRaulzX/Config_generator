@@ -574,3 +574,240 @@ def delete_crafting_from_config(job_key: str, craft_name: str) -> str:
     
     new_content = before + "\n" + after
     return new_content
+
+
+# ============================================================================
+# COMENTAR / DESCOMENTAR CRAFTEOS (desactivar/activar)
+# ============================================================================
+
+def comment_crafting_in_config(job_key: str, craft_name: str) -> str:
+    """
+    Comenta (desactiva) un bloque de crafteo existente en el archivo de configuración.
+    Cada línea del bloque se prefija con '-- '.
+    
+    Args:
+        job_key: Clave del job
+        craft_name: Nombre (Text) del crafteo a comentar
+    
+    Returns:
+        str: Contenido completo del archivo con el crafteo comentado,
+             o None si no se encontró
+    """
+    content = get_config_file_content(job_key)
+    if not content:
+        return None
+    
+    crafteos = parse_crafting_blocks(content)
+    
+    target = None
+    for c in crafteos:
+        if c.get('nombre') == craft_name:
+            target = c
+            break
+    
+    if not target:
+        return None
+    
+    start = target['_start_pos']
+    end = target['_end_pos']
+    
+    raw_block = content[start:end]
+    
+    # Comentar cada línea del bloque
+    commented_lines = []
+    for line in raw_block.split('\n'):
+        commented_lines.append('-- ' + line)
+    commented_block = '\n'.join(commented_lines)
+    
+    # Determinar el contexto: antes y después del bloque
+    before = content[:start].rstrip()
+    after_raw = content[end:]
+    after = after_raw.lstrip(' \t')
+    stripped_len = len(after_raw) - len(after)
+    
+    # Contar cuántos crafteos activos quedan después de comentar este
+    otros_activos = [c for c in crafteos if c.get('nombre') != craft_name]
+    
+    if after.startswith(','):
+        # Hay coma después del bloque → hay más crafteos después
+        # Eliminar la coma del contenido activo (queda parte del comentario)
+        after_pos = end + stripped_len + 1  # +1 para saltar la coma
+        
+        # Asegurar que before termina en newline
+        if not before.endswith('\n'):
+            before_with_nl = before + '\n'
+        else:
+            before_with_nl = before
+        
+        new_content = before_with_nl + commented_block + '\n' + content[after_pos:]
+    else:
+        # No hay coma después → este es el último crafteo o único
+        # Limpiar coma antes del bloque
+        if before.endswith(','):
+            before = before[:-1]
+        
+        if not before.endswith('\n'):
+            before += '\n'
+        
+        new_content = before + commented_block + '\n' + after
+    
+    return new_content
+
+
+def parse_commented_blocks(lua_content: str) -> list:
+    """
+    Busca bloques de crafteo comentados (desactivados) en un archivo Lua.
+    Un bloque comentado son líneas consecutivas que empiezan con '-- '
+    y contienen campos de crafteo como Text, Items, etc.
+    
+    Args:
+        lua_content: Contenido del archivo .lua
+    
+    Returns:
+        list de dicts con: 'nombre', 'descripcion', '_commented_text',
+        '_start_pos', '_end_pos' para cada bloque comentado
+    """
+    bloques = []
+    if not lua_content:
+        return bloques
+    
+    lines = lua_content.split('\n')
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # Detectar inicio de un bloque comentado: -- {
+        if stripped == '-- {' or stripped == '-- {,':
+            block_lines = [line]
+            block_start_line = i
+            j = i + 1
+            
+            # Recoger líneas consecutivas comentadas
+            while j < len(lines):
+                next_line = lines[j]
+                next_stripped = next_line.strip()
+                
+                # Línea comentada o línea vacía entre comentarios
+                if next_stripped.startswith('--'):
+                    block_lines.append(next_line)
+                    # Detectar el cierre del bloque: -- }, o -- }
+                    if next_stripped in ('-- },', '-- }', '-- },'):
+                        j += 1
+                        break
+                elif next_stripped == '':
+                    block_lines.append(next_line)
+                else:
+                    break
+                j += 1
+            
+            # Verificar que el bloque contiene un crafteo (tiene Text y Items)
+            full_commented = '\n'.join(block_lines)
+            if 'Text' in full_commented and 'Items' in full_commented:
+                # Descomentar para parsear los campos
+                uncommented = '\n'.join(
+                    l.strip().removeprefix('-- ').removeprefix('--') 
+                    for l in block_lines 
+                    if l.strip().startswith('--')
+                )
+                
+                # Extraer nombre y descripción del bloque descomentado
+                nombre = ''
+                descripcion = ''
+                m_text = re.search(r'Text\s*=\s*"([^"]*)"', uncommented)
+                if m_text:
+                    nombre = m_text.group(1)
+                m_desc = re.search(r'Desc\s*=\s*"([^"]*)"', uncommented)
+                if m_desc:
+                    descripcion = m_desc.group(1)
+                
+                # Calcular posiciones en el string original
+                pos_start = sum(len(lines[k]) + 1 for k in range(block_start_line))
+                pos_end = sum(len(lines[k]) + 1 for k in range(j))
+                
+                bloques.append({
+                    'nombre': nombre,
+                    'descripcion': descripcion,
+                    '_commented_text': full_commented,
+                    '_start_pos': pos_start,
+                    '_end_pos': pos_end,
+                    '_start_line': block_start_line,
+                    '_end_line': j
+                })
+            
+            i = j
+        else:
+            i += 1
+    
+    return bloques
+
+
+def uncomment_crafting_in_config(job_key: str, craft_name: str) -> str:
+    """
+    Descomenta (reactiva) un bloque de crafteo comentado en el archivo de configuración.
+    
+    Args:
+        job_key: Clave del job
+        craft_name: Nombre (Text) del crafteo comentado a reactivar
+    
+    Returns:
+        str: Contenido completo del archivo con el crafteo descomentado,
+             o None si no se encontró
+    """
+    content = get_config_file_content(job_key)
+    if not content:
+        return None
+    
+    commented_blocks = parse_commented_blocks(content)
+    
+    target = None
+    for b in commented_blocks:
+        if b.get('nombre') == craft_name:
+            target = b
+            break
+    
+    if not target:
+        return None
+    
+    start = target['_start_pos']
+    end = target['_end_pos']
+    
+    commented_text = content[start:end]
+    
+    # Descomentar: quitar '-- ' del inicio de cada línea
+    uncommented_lines = []
+    for line in commented_text.split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('-- '):
+            uncommented_lines.append(line.replace('-- ', '', 1))
+        elif stripped.startswith('--'):
+            uncommented_lines.append(line.replace('--', '', 1))
+        else:
+            uncommented_lines.append(line)
+    
+    uncommented_block = '\n'.join(uncommented_lines)
+    
+    # Limpiar: la última línea puede ser "-- ," que queda como " ,"
+    # Asegurar que el bloque termina correctamente con },
+    uncommented_block = uncommented_block.rstrip()
+    if not uncommented_block.endswith('},') and not uncommented_block.endswith('}'):
+        uncommented_block = uncommented_block.rstrip(',').rstrip() + '}'
+    
+    # Verificar que hay coma de separación adecuada
+    before = content[:start].rstrip()
+    after = content[end:].lstrip()
+    
+    # Si hay un bloque activo antes, asegurar coma
+    if before and before[-1] == '}':
+        before += ','
+    elif before and before[-1] == ',':
+        pass  # Ya tiene coma
+    
+    # Si hay un bloque activo después, asegurar coma al final
+    if after and after[0] == '{':
+        if not uncommented_block.endswith(','):
+            uncommented_block += ','
+    
+    new_content = before + '\n' + uncommented_block + '\n' + after
+    return new_content

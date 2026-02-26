@@ -14,7 +14,10 @@ from lua_crafteo_generator import (
     get_config_file_content,
     parse_crafting_blocks,
     replace_crafting_in_config,
-    delete_crafting_from_config
+    delete_crafting_from_config,
+    comment_crafting_in_config,
+    uncomment_crafting_in_config,
+    parse_commented_blocks
 )
 
 # ============================================================================
@@ -1696,6 +1699,31 @@ with col_output:
                     st.code(config_editado, language="lua")
             else:
                 st.error("⚠️ No se pudo encontrar el crafteo original para reemplazar")
+            
+            # Botón para desactivar (comentar) el crafteo
+            st.markdown("---")
+            st.markdown("""
+            <div class="section-card">
+                <div class="section-title">🚫 Desactivar Crafteo</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.warning(f"⚠️ Esto comentará el crafteo **{st.session_state.nombre_original}** en el archivo Lua, desactivándolo sin borrarlo.")
+            
+            config_desactivado = comment_crafting_in_config(
+                job_seleccionado,
+                st.session_state.nombre_original
+            )
+            
+            if config_desactivado:
+                st.download_button(
+                    label=f"🚫 Descargar config_{job_seleccionado}.lua con crafteo desactivado",
+                    data=config_desactivado,
+                    file_name=f"config_{job_seleccionado}.lua",
+                    mime="text/plain",
+                    use_container_width=True,
+                    key="download_disabled_config"
+                )
         
         # ===== MODO CREACIÓN: Añadir nuevo =====
         else:
@@ -1776,6 +1804,57 @@ with col_output:
         3. Pégalo antes del último `}}`
         4. Guarda y recarga
         """)
+    
+    # ===== SECCIÓN: CRAFTEOS DESACTIVADOS =====
+    st.markdown("---")
+    
+    existing_config_for_disabled = get_config_file_content(job_seleccionado)
+    if existing_config_for_disabled:
+        bloques_comentados = parse_commented_blocks(existing_config_for_disabled)
+        
+        if bloques_comentados:
+            with st.expander(f"🚫 Crafteos Desactivados ({len(bloques_comentados)})", expanded=False):
+                st.markdown("""
+                <div class="info-tip">
+                    <strong>💡 Info:</strong> Estos crafteos están comentados en el archivo Lua y no están activos en el servidor.
+                    Puedes reactivarlos descargando el config con el crafteo descomentado.
+                </div>
+                """, unsafe_allow_html=True)
+                
+                for idx_dis, bloque_dis in enumerate(bloques_comentados):
+                    nombre_dis = bloque_dis.get('nombre', 'Sin nombre')
+                    desc_dis = bloque_dis.get('descripcion', '')
+                    
+                    col_dis1, col_dis2 = st.columns([4, 1])
+                    
+                    with col_dis1:
+                        st.markdown(f"""
+                        <div class="ingredient-box" style="border-left-color: #ff4444; opacity: 0.8;">
+                            <div class="ingredient-info">
+                                <span class="ingredient-icon">🚫</span>
+                                <div>
+                                    <div class="ingredient-name">{nombre_dis}</div>
+                                    <div class="ingredient-id">{desc_dis}</div>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_dis2:
+                        config_reactivado = uncomment_crafting_in_config(
+                            job_seleccionado,
+                            nombre_dis
+                        )
+                        
+                        if config_reactivado:
+                            st.download_button(
+                                label="✅ Reactivar",
+                                data=config_reactivado,
+                                file_name=f"config_{job_seleccionado}.lua",
+                                mime="text/plain",
+                                use_container_width=True,
+                                key=f"reactivar_{idx_dis}"
+                            )
 
 # ============================================================================
 # FOOTER
