@@ -5,6 +5,8 @@ Usa una cuenta de servicio (Service Account) configurada vía st.secrets.
 """
 
 import json
+import os
+import tempfile
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
@@ -31,14 +33,8 @@ _file_cache = {}  # filename -> file_id
 def get_service(secrets_dict: dict = None):
     """
     Obtiene el servicio autenticado de Google Drive usando Service Account.
-    
-    Args:
-        secrets_dict: Diccionario con las credenciales de la cuenta de servicio
-                      (obtenido de st.secrets["gcp_service_account"]).
-                      Solo necesario en la primera llamada.
-    
-    Returns:
-        googleapiclient.discovery.Resource: Servicio de Drive autenticado
+    Escribe un archivo JSON temporal y usa from_service_account_file
+    para máxima compatibilidad.
     """
     global _service
     
@@ -51,9 +47,22 @@ def get_service(secrets_dict: dict = None):
             "Configura [gcp_service_account] en los secrets de Streamlit."
         )
     
-    # Construir credenciales desde el dict de secrets
-    creds = Credentials.from_service_account_info(secrets_dict, scopes=SCOPES)
-    _service = build('drive', 'v3', credentials=creds)
+    # Escribir a archivo JSON temporal y usar from_service_account_file
+    # Esto evita cualquier problema de tipos/encoding del dict
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.json', prefix='gcp_sa_')
+    try:
+        with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+            json.dump(secrets_dict, f)
+        
+        creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
+        _service = build('drive', 'v3', credentials=creds)
+    finally:
+        # Eliminar el archivo temporal
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    
     return _service
 
 
@@ -68,22 +77,30 @@ def init_from_secrets(secrets_dict: dict) -> bool:
         bool: True si la conexión fue exitosa
     """
     try:
-        # Asegurar que private_key es string puro con saltos de línea reales
+        # Asegurar que private_key es un string con saltos de línea reales
         if 'private_key' in secrets_dict:
             pk = str(secrets_dict['private_key'])
             # Reemplazar \n literales (2 caracteres) por saltos reales
             pk = pk.replace('\\n', '\n')
             # Limpiar espacios/newlines extra al inicio y final
             pk = pk.strip()
+            # Asegurar que termina con newline (requerido por PEM)
+            if not pk.endswith('\n'):
+                pk += '\n'
             secrets_dict['private_key'] = pk
             
-            # Debug: imprimir info de la clave para diagnosticar
-            lines = pk.split('\n')
+            # Debug
+            lines = pk.strip().split('\n')
             print(f"[Drive Debug] private_key: {len(pk)} chars, {len(lines)} lines")
-            print(f"[Drive Debug] Empieza con: {repr(pk[:40])}")
-            print(f"[Drive Debug] Termina con: {repr(pk[-40:])}")
             print(f"[Drive Debug] Primera línea: {repr(lines[0])}")
             print(f"[Drive Debug] Última línea: {repr(lines[-1])}")
+            print(f"[Drive Debug] Tipo: {type(secrets_dict['private_key'])}")
+        
+        # Asegurar que todos los valores son tipos Python nativos
+        for key in list(secrets_dict.keys()):
+            val = secrets_dict[key]
+            if not isinstance(val, (str, int, float, bool, list, dict, type(None))):
+                secrets_dict[key] = str(val)
         
         service = get_service(secrets_dict)
         # Test rápido
