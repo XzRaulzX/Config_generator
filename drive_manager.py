@@ -70,9 +70,14 @@ def init_from_secrets(secrets_dict: dict) -> bool:
     try:
         # Asegurar que private_key tiene saltos de línea reales
         if 'private_key' in secrets_dict:
-            pk = secrets_dict['private_key']
-            if isinstance(pk, str) and '\\n' in pk and '\n' not in pk.replace('\\n', ''):
-                secrets_dict['private_key'] = pk.replace('\\n', '\n')
+            pk = str(secrets_dict['private_key'])
+            # Si no tiene saltos de línea reales, convertir los literales
+            if '\n' not in pk:
+                pk = pk.replace('\\n', '\n')
+            # Normalizar: puede tener ambos (reales + literales)
+            # Reemplazar cualquier literal \n restante por real \n
+            pk = pk.replace('\\n', '\n')
+            secrets_dict['private_key'] = pk
         
         service = get_service(secrets_dict)
         # Test rápido

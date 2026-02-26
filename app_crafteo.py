@@ -54,10 +54,9 @@ def init_drive_connection():
             return False
         
         # Convertir AttrDict de Streamlit a dict plano
+        # IMPORTANTE: NO usar str() sobre los valores, corrompe la private_key
         raw = st.secrets["gcp_service_account"]
-        secrets_dict = {}
-        for k, v in raw.items():
-            secrets_dict[k] = str(v) if not isinstance(v, (dict, list)) else v
+        secrets_dict = dict(raw)
         
         # Debug: verificar campos críticos
         if 'private_key' not in secrets_dict:
