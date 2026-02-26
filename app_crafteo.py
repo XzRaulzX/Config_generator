@@ -35,19 +35,21 @@ except ImportError:
 
 
 def init_drive_connection():
-    """Intenta conectar con Google Drive y configurar el modo de almacenamiento."""
+    """Intenta conectar con Google Drive usando los secrets de Streamlit."""
     if not _drive_available:
         return False
     
-    if not drive_manager.has_token():
-        return False
-    
     try:
-        if drive_manager.is_authenticated():
+        # Leer credenciales de la cuenta de servicio desde st.secrets
+        if "gcp_service_account" not in st.secrets:
+            return False
+        
+        secrets_dict = dict(st.secrets["gcp_service_account"])
+        if drive_manager.init_from_secrets(secrets_dict):
             set_storage_mode('drive', drive_manager)
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error inicializando Drive: {e}")
     
     return False
 

@@ -1,15 +1,11 @@
 """
 Google Drive Manager para Config Generator
 Gestiona la lectura/escritura de archivos Lua en una carpeta de Google Drive.
+Usa una cuenta de servicio (Service Account) configurada vía st.secrets.
 """
 
-import os
 import json
-from pathlib import Path
-
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
@@ -20,10 +16,6 @@ from googleapiclient.http import MediaInMemoryUpload
 SCOPES = ['https://www.googleapis.com/auth/drive']
 FOLDER_ID = '1gS373cidiKlUqb3FfxgvwlwmZ6odFaEO'
 
-BASE_DIR = Path(__file__).parent
-TOKEN_FILE = BASE_DIR / 'token.json'
-CREDENTIALS_FILE = BASE_DIR / 'credentials.json'
-
 # ============================================================================
 # ESTADO GLOBAL
 # ============================================================================
@@ -33,53 +25,61 @@ _file_cache = {}  # filename -> file_id
 
 
 # ============================================================================
-# AUTENTICACIÓN
+# AUTENTICACIÓN CON SERVICE ACCOUNT
 # ============================================================================
 
-def get_service():
+def get_service(secrets_dict: dict = None):
     """
-    Obtiene el servicio autenticado de Google Drive.
-    Usa token.json existente o lanza error si no hay credenciales.
+    Obtiene el servicio autenticado de Google Drive usando Service Account.
+    
+    Args:
+        secrets_dict: Diccionario con las credenciales de la cuenta de servicio
+                      (obtenido de st.secrets["gcp_service_account"]).
+                      Solo necesario en la primera llamada.
     
     Returns:
         googleapiclient.discovery.Resource: Servicio de Drive autenticado
-    
-    Raises:
-        FileNotFoundError: Si no existe credentials.json ni token.json
-        Exception: Si la autenticación falla
     """
     global _service
     
     if _service is not None:
         return _service
     
-    creds = None
+    if secrets_dict is None:
+        raise ValueError(
+            "Se necesitan las credenciales de la cuenta de servicio.\n"
+            "Configura [gcp_service_account] en los secrets de Streamlit."
+        )
     
-    # Intentar cargar token existente
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
-    
-    # Si no hay credenciales válidas
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            # Token expirado pero con refresh_token → renovar
-            creds.refresh(Request())
-            # Guardar token renovado
-            with open(TOKEN_FILE, 'w') as f:
-                f.write(creds.to_json())
-        else:
-            # No hay token válido → necesita autenticación
-            raise FileNotFoundError(
-                "No se encontró un token válido de Google Drive.\n"
-                "Ejecuta 'python authenticate_drive.py' para autenticarte."
-            )
-    
+    # Construir credenciales desde el dict de secrets
+    creds = Credentials.from_service_account_info(secrets_dict, scopes=SCOPES)
     _service = build('drive', 'v3', credentials=creds)
     return _service
 
 
+def init_from_secrets(secrets_dict: dict) -> bool:
+    """
+    Inicializa la conexión a Drive usando los secrets de Streamlit.
+    
+    Args:
+        secrets_dict: st.secrets["gcp_service_account"] como dict
+    
+    Returns:
+        bool: True si la conexión fue exitosa
+    """
+    try:
+        service = get_service(secrets_dict)
+        # Test rápido
+        service.files().list(pageSize=1, q=f"'{FOLDER_ID}' in parents").execute()
+        return True
+    except Exception as e:
+        reset_service()
+        print(f"Error conectando a Drive: {e}")
+        return False
+
+
 def reset_service():
-    """Resetea el servicio (útil si el token expira durante la sesión)"""
+    """Resetea el servicio (útil si falla la conexión)"""
     global _service
     _service = None
 
@@ -92,22 +92,12 @@ def is_authenticated():
         bool: True si la autenticación es válida
     """
     try:
-        service = get_service()
-        # Test rápido: listar 1 archivo
-        service.files().list(pageSize=1).execute()
+        if _service is None:
+            return False
+        _service.files().list(pageSize=1).execute()
         return True
     except Exception:
         return False
-
-
-def has_credentials():
-    """Verifica si existe el archivo credentials.json"""
-    return CREDENTIALS_FILE.exists()
-
-
-def has_token():
-    """Verifica si existe un token.json"""
-    return TOKEN_FILE.exists()
 
 
 # ============================================================================
