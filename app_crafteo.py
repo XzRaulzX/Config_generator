@@ -53,10 +53,11 @@ def init_drive_connection():
             )
             return False
         
-        # Convertir AttrDict de Streamlit a dict plano
-        # IMPORTANTE: NO usar str() sobre los valores, corrompe la private_key
+        # Convertir AttrDict de Streamlit a dict Python puro
+        # Round-trip JSON para eliminar tipos especiales de Streamlit
+        import json
         raw = st.secrets["gcp_service_account"]
-        secrets_dict = dict(raw)
+        secrets_dict = json.loads(json.dumps(dict(raw)))
         
         # Debug: verificar campos críticos
         if 'private_key' not in secrets_dict:

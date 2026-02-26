@@ -68,20 +68,27 @@ def init_from_secrets(secrets_dict: dict) -> bool:
         bool: True si la conexión fue exitosa
     """
     try:
-        # Asegurar que private_key tiene saltos de línea reales
+        # Asegurar que private_key es string puro con saltos de línea reales
         if 'private_key' in secrets_dict:
             pk = str(secrets_dict['private_key'])
-            # Si no tiene saltos de línea reales, convertir los literales
-            if '\n' not in pk:
-                pk = pk.replace('\\n', '\n')
-            # Normalizar: puede tener ambos (reales + literales)
-            # Reemplazar cualquier literal \n restante por real \n
+            # Reemplazar \n literales (2 caracteres) por saltos reales
             pk = pk.replace('\\n', '\n')
+            # Limpiar espacios/newlines extra al inicio y final
+            pk = pk.strip()
             secrets_dict['private_key'] = pk
+            
+            # Debug: imprimir info de la clave para diagnosticar
+            lines = pk.split('\n')
+            print(f"[Drive Debug] private_key: {len(pk)} chars, {len(lines)} lines")
+            print(f"[Drive Debug] Empieza con: {repr(pk[:40])}")
+            print(f"[Drive Debug] Termina con: {repr(pk[-40:])}")
+            print(f"[Drive Debug] Primera línea: {repr(lines[0])}")
+            print(f"[Drive Debug] Última línea: {repr(lines[-1])}")
         
         service = get_service(secrets_dict)
         # Test rápido
         service.files().list(pageSize=1, q=f"'{FOLDER_ID}' in parents").execute()
+        print("[Drive Debug] Conexión exitosa!")
         return True
     except Exception as e:
         reset_service()
