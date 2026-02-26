@@ -42,14 +42,20 @@ def init_drive_connection():
     try:
         # Leer credenciales de la cuenta de servicio desde st.secrets
         if "gcp_service_account" not in st.secrets:
+            print("No se encontró [gcp_service_account] en st.secrets")
             return False
         
-        secrets_dict = dict(st.secrets["gcp_service_account"])
+        # Convertir AttrDict de Streamlit a dict plano (recursivo)
+        raw = st.secrets["gcp_service_account"]
+        secrets_dict = {k: str(v) if not isinstance(v, (dict, list)) else v for k, v in raw.items()}
+        
         if drive_manager.init_from_secrets(secrets_dict):
             set_storage_mode('drive', drive_manager)
             return True
     except Exception as e:
+        import traceback
         print(f"Error inicializando Drive: {e}")
+        traceback.print_exc()
     
     return False
 

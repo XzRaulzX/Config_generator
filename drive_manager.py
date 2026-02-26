@@ -68,6 +68,12 @@ def init_from_secrets(secrets_dict: dict) -> bool:
         bool: True si la conexión fue exitosa
     """
     try:
+        # Asegurar que private_key tiene saltos de línea reales
+        if 'private_key' in secrets_dict:
+            pk = secrets_dict['private_key']
+            if isinstance(pk, str) and '\\n' in pk and '\n' not in pk.replace('\\n', ''):
+                secrets_dict['private_key'] = pk.replace('\\n', '\n')
+        
         service = get_service(secrets_dict)
         # Test rápido
         service.files().list(pageSize=1, q=f"'{FOLDER_ID}' in parents").execute()
@@ -75,6 +81,8 @@ def init_from_secrets(secrets_dict: dict) -> bool:
     except Exception as e:
         reset_service()
         print(f"Error conectando a Drive: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
