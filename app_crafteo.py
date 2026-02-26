@@ -982,6 +982,9 @@ if 'crafteo_editando' not in st.session_state:
 if 'nombre_original' not in st.session_state:
     st.session_state.nombre_original = None
 
+if 'page' not in st.session_state:
+    st.session_state.page = "generador"
+
 # ============================================================================
 # HEADER PRINCIPAL
 # ============================================================================
@@ -1020,6 +1023,21 @@ with st.sidebar:
             <br><span style="color: #888; font-size: 0.7rem;">Descarga los archivos manualmente</span>
         </div>
         """, unsafe_allow_html=True)
+    
+    # Navegación de páginas
+    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
+    
+    page_options = {"generador": "⚒️ Generador de Crafteos", "gestion": "📂 Gestión de Archivos"}
+    page = st.radio(
+        "Navegación",
+        options=list(page_options.keys()),
+        format_func=lambda x: page_options[x],
+        key="page_nav",
+        label_visibility="collapsed"
+    )
+    st.session_state.page = page
+    
+    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
     
     # Stats
     st.markdown(f"""
@@ -1095,6 +1113,274 @@ with st.sidebar:
         <small>~ La Hermandad ~</small>
     </div>
     """, unsafe_allow_html=True)
+
+# ============================================================================
+# PÁGINA: GESTIÓN DE ARCHIVOS DRIVE
+# ============================================================================
+if st.session_state.page == "gestion":
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 25px;">
+        <span style="font-family: 'Rye', cursive; font-size: 1.8rem; color: #c9a227;">📂 GESTIÓN DE ARCHIVOS</span>
+        <p style="font-family: 'IM Fell English', serif; color: #d4c5a9; font-style: italic;">Administra los archivos de configuración en Google Drive</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if not st.session_state.drive_connected:
+        st.error("❌ No hay conexión con Google Drive. Esta sección requiere conexión activa.")
+        st.info("💡 Configura las credenciales de Google Drive en los secrets de Streamlit para habilitar esta función.")
+    else:
+        # Botón de refrescar caché
+        col_refresh, col_spacer = st.columns([1, 3])
+        with col_refresh:
+            if st.button("🔄 Refrescar archivos", use_container_width=True, key="refresh_drive_files"):
+                drive_manager.clear_cache()
+                st.rerun()
+        
+        # Obtener archivos disponibles
+        from lua_crafteo_generator import get_available_configs, get_config_file_content, parse_crafting_blocks, parse_commented_blocks, save_config_file, delete_crafting_from_config, comment_crafting_in_config, uncomment_crafting_in_config
+        
+        config_keys = get_available_configs()
+        
+        if not config_keys:
+            st.warning("📭 No se encontraron archivos de configuración en Drive.")
+        else:
+            # Layout: lista de archivos + editor
+            col_file_list, col_file_content = st.columns([1, 3], gap="large")
+            
+            with col_file_list:
+                st.markdown("""
+                <div class="section-card">
+                    <div class="section-title">📁 Archivos</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                archivo_sel = st.radio(
+                    "Selecciona un archivo",
+                    options=config_keys,
+                    format_func=lambda x: f"📄 config_{x}.lua",
+                    key="drive_file_select",
+                    label_visibility="collapsed"
+                )
+                
+                # Info del archivo seleccionado
+                content = get_config_file_content(archivo_sel)
+                if content:
+                    crafteos_activos = parse_crafting_blocks(content)
+                    crafteos_comentados = parse_commented_blocks(content)
+                    n_lines = content.count('\n') + 1
+                    
+                    st.markdown(f"""
+                    <div style="background: rgba(74, 55, 40, 0.6); border: 1px solid #654321; border-radius: 4px; padding: 12px; margin-top: 10px;">
+                        <div style="color: #c9a227; font-family: 'Cinzel', serif; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 8px;">Info del archivo</div>
+                        <div style="color: #d4c5a9; font-size: 0.85rem;">✅ Activos: <strong>{len(crafteos_activos)}</strong></div>
+                        <div style="color: #d4c5a9; font-size: 0.85rem;">🚫 Desactivados: <strong>{len(crafteos_comentados)}</strong></div>
+                        <div style="color: #d4c5a9; font-size: 0.85rem;">📝 Líneas: <strong>{n_lines}</strong></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with col_file_content:
+                if content:
+                    tab_crafteos, tab_editor = st.tabs(["📋 Crafteos", "✏️ Editor Lua"])
+                    
+                    # ===== TAB: CRAFTEOS =====
+                    with tab_crafteos:
+                        st.markdown("""
+                        <div class="section-card">
+                            <div class="section-title">📋 Crafteos del Archivo</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # --- Crafteos activos ---
+                        if crafteos_activos:
+                            st.markdown(f"**✅ Crafteos Activos ({len(crafteos_activos)})**")
+                            
+                            for idx, craft in enumerate(crafteos_activos):
+                                nombre_c = craft.get('nombre', 'Sin nombre')
+                                desc_c = craft.get('descripcion', '')
+                                cat_c = craft.get('categoria', '')
+                                nivel_c = craft.get('nivel_minimo', 0)
+                                n_ing = len(craft.get('ingredientes', []))
+                                n_rew = len(craft.get('recompensas', []))
+                                
+                                with st.expander(f"⚒️ {nombre_c}", expanded=False):
+                                    # Info del crafteo
+                                    col_info, col_actions = st.columns([3, 1])
+                                    
+                                    with col_info:
+                                        st.markdown(f"""
+                                        <div style="background: rgba(74, 55, 40, 0.4); padding: 12px; border-radius: 4px; border-left: 3px solid #c9a227;">
+                                            <div style="color: #d4c5a9;"><strong>Descripción:</strong> {desc_c or 'Sin descripción'}</div>
+                                            <div style="color: #d4c5a9;"><strong>Categoría:</strong> {cat_c}</div>
+                                            <div style="color: #d4c5a9;"><strong>Nivel mínimo:</strong> {nivel_c}</div>
+                                            <div style="color: #d4c5a9;"><strong>Ingredientes:</strong> {n_ing} | <strong>Recompensas:</strong> {n_rew}</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                        
+                                        # Detalle de ingredientes
+                                        if craft.get('ingredientes'):
+                                            st.markdown("**Ingredientes:**")
+                                            for ing in craft['ingredientes']:
+                                                ing_name = ing.get('name', '?')
+                                                ing_label = ALL_ITEMS.get(ing_name, ing_name)
+                                                ing_count = ing.get('count', 1)
+                                                st.markdown(f"- `{ing_label}` ({ing_name}) x{ing_count}")
+                                        
+                                        # Detalle de recompensas
+                                        if craft.get('recompensas'):
+                                            st.markdown("**Recompensas:**")
+                                            for rew in craft['recompensas']:
+                                                rew_name = rew.get('name', '?')
+                                                rew_label = ALL_ITEMS.get(rew_name, rew_name)
+                                                rew_count = rew.get('count', 1)
+                                                st.markdown(f"- 🎁 `{rew_label}` ({rew_name}) x{rew_count}")
+                                    
+                                    with col_actions:
+                                        st.markdown("**Acciones:**")
+                                        
+                                        # Desactivar crafteo
+                                        if st.button("🚫 Desactivar", key=f"disable_{archivo_sel}_{idx}", use_container_width=True):
+                                            config_desactivado = comment_crafting_in_config(archivo_sel, nombre_c)
+                                            if config_desactivado:
+                                                if save_config_file(archivo_sel, config_desactivado):
+                                                    st.success(f"✅ '{nombre_c}' desactivado")
+                                                    drive_manager.clear_cache()
+                                                    st.rerun()
+                                                else:
+                                                    st.error("❌ Error al guardar")
+                                        
+                                        # Eliminar crafteo
+                                        if st.button("🗑️ Eliminar", key=f"delete_{archivo_sel}_{idx}", use_container_width=True, type="secondary"):
+                                            st.session_state[f"confirm_delete_{archivo_sel}_{idx}"] = True
+                                        
+                                        # Confirmación de eliminación
+                                        if st.session_state.get(f"confirm_delete_{archivo_sel}_{idx}", False):
+                                            st.warning("⚠️ ¿Seguro?")
+                                            col_yes, col_no = st.columns(2)
+                                            with col_yes:
+                                                if st.button("✅ Sí", key=f"confirm_yes_{archivo_sel}_{idx}", use_container_width=True):
+                                                    config_eliminado = delete_crafting_from_config(archivo_sel, nombre_c)
+                                                    if config_eliminado:
+                                                        if save_config_file(archivo_sel, config_eliminado):
+                                                            st.success(f"✅ '{nombre_c}' eliminado")
+                                                            drive_manager.clear_cache()
+                                                            del st.session_state[f"confirm_delete_{archivo_sel}_{idx}"]
+                                                            st.rerun()
+                                                        else:
+                                                            st.error("❌ Error al guardar")
+                                            with col_no:
+                                                if st.button("❌ No", key=f"confirm_no_{archivo_sel}_{idx}", use_container_width=True):
+                                                    del st.session_state[f"confirm_delete_{archivo_sel}_{idx}"]
+                                                    st.rerun()
+                                    
+                                    # Código Lua raw del crafteo
+                                    with st.expander("🔍 Ver código Lua", expanded=False):
+                                        st.code(craft.get('_raw_block', ''), language="lua")
+                        else:
+                            st.info("No hay crafteos activos en este archivo.")
+                        
+                        st.markdown("---")
+                        
+                        # --- Crafteos desactivados ---
+                        if crafteos_comentados:
+                            st.markdown(f"**🚫 Crafteos Desactivados ({len(crafteos_comentados)})**")
+                            
+                            for idx_d, bloque_d in enumerate(crafteos_comentados):
+                                nombre_d = bloque_d.get('nombre', 'Sin nombre')
+                                desc_d = bloque_d.get('descripcion', '')
+                                
+                                col_dis_info, col_dis_action = st.columns([4, 1])
+                                
+                                with col_dis_info:
+                                    st.markdown(f"""
+                                    <div class="ingredient-box" style="border-left-color: #ff4444; opacity: 0.7;">
+                                        <div class="ingredient-info">
+                                            <span class="ingredient-icon">🚫</span>
+                                            <div>
+                                                <div class="ingredient-name">{nombre_d}</div>
+                                                <div class="ingredient-id">{desc_d}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                
+                                with col_dis_action:
+                                    if st.button("✅ Reactivar", key=f"reactivar_gestion_{archivo_sel}_{idx_d}", use_container_width=True):
+                                        config_reactivado = uncomment_crafting_in_config(archivo_sel, nombre_d)
+                                        if config_reactivado:
+                                            if save_config_file(archivo_sel, config_reactivado):
+                                                st.success(f"✅ '{nombre_d}' reactivado")
+                                                drive_manager.clear_cache()
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ Error al guardar")
+                        elif not crafteos_activos:
+                            st.warning("Este archivo no contiene crafteos reconocibles.")
+                    
+                    # ===== TAB: EDITOR LUA =====
+                    with tab_editor:
+                        st.markdown("""
+                        <div class="section-card">
+                            <div class="section-title">✏️ Editor de Código Lua</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown("""
+                        <div class="info-tip">
+                            <strong>⚠️ Avanzado:</strong> Edita directamente el código Lua del archivo. 
+                            Los cambios se aplicarán tal cual al guardar. Usa con precaución.
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Editor de texto
+                        edited_content = st.text_area(
+                            "Código Lua",
+                            value=content,
+                            height=500,
+                            key=f"lua_editor_{archivo_sel}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        # Detectar cambios
+                        has_changes = (edited_content != content)
+                        
+                        col_save, col_revert, col_download = st.columns([2, 1, 1])
+                        
+                        with col_save:
+                            save_disabled = not has_changes
+                            if st.button(
+                                "☁️ Guardar cambios en Drive" if has_changes else "✅ Sin cambios",
+                                use_container_width=True,
+                                type="primary",
+                                disabled=save_disabled,
+                                key=f"save_editor_{archivo_sel}"
+                            ):
+                                if save_config_file(archivo_sel, edited_content):
+                                    st.success(f"✅ config_{archivo_sel}.lua guardado en Drive")
+                                    drive_manager.clear_cache()
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Error al guardar en Drive")
+                        
+                        with col_revert:
+                            if st.button("↩️ Revertir", use_container_width=True, disabled=not has_changes, key=f"revert_{archivo_sel}"):
+                                st.rerun()
+                        
+                        with col_download:
+                            st.download_button(
+                                label="📥 Descargar",
+                                data=edited_content,
+                                file_name=f"config_{archivo_sel}.lua",
+                                mime="text/plain",
+                                use_container_width=True,
+                                key=f"download_editor_{archivo_sel}"
+                            )
+                        
+                        if has_changes:
+                            st.warning("⚠️ Hay cambios sin guardar en el editor.")
+                else:
+                    st.error(f"❌ No se pudo leer el contenido de config_{archivo_sel}.lua")
+    
+    st.stop()
 
 # ============================================================================
 # LAYOUT PRINCIPAL
