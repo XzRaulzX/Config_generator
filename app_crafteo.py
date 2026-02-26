@@ -36,32 +36,57 @@ except ImportError:
 
 def init_drive_connection():
     """Intenta conectar con Google Drive usando los secrets de Streamlit."""
+    import traceback
+    
     if not _drive_available:
+        st.session_state.drive_error = "Módulo drive_manager no disponible (ImportError)"
         return False
     
     try:
         # Leer credenciales de la cuenta de servicio desde st.secrets
         if "gcp_service_account" not in st.secrets:
-            print("No se encontró [gcp_service_account] en st.secrets")
+            # Mostrar qué claves hay disponibles para depurar
+            available_keys = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else str(type(st.secrets))
+            st.session_state.drive_error = (
+                f"No se encontró [gcp_service_account] en st.secrets.\n"
+                f"Claves disponibles: {available_keys}"
+            )
             return False
         
-        # Convertir AttrDict de Streamlit a dict plano (recursivo)
+        # Convertir AttrDict de Streamlit a dict plano
         raw = st.secrets["gcp_service_account"]
-        secrets_dict = {k: str(v) if not isinstance(v, (dict, list)) else v for k, v in raw.items()}
+        secrets_dict = {}
+        for k, v in raw.items():
+            secrets_dict[k] = str(v) if not isinstance(v, (dict, list)) else v
+        
+        # Debug: verificar campos críticos
+        if 'private_key' not in secrets_dict:
+            st.session_state.drive_error = f"Falta 'private_key' en secrets. Campos: {list(secrets_dict.keys())}"
+            return False
+        if 'client_email' not in secrets_dict:
+            st.session_state.drive_error = f"Falta 'client_email' en secrets. Campos: {list(secrets_dict.keys())}"
+            return False
         
         if drive_manager.init_from_secrets(secrets_dict):
+            st.session_state.drive_error = None
             set_storage_mode('drive', drive_manager)
             return True
+        else:
+            st.session_state.drive_error = "drive_manager.init_from_secrets() devolvió False. Revisa los logs del servidor."
+            return False
     except Exception as e:
-        import traceback
-        print(f"Error inicializando Drive: {e}")
-        traceback.print_exc()
-    
-    return False
+        error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        st.session_state.drive_error = error_msg
+        print(f"Error inicializando Drive: {error_msg}")
+        return False
 
 
-# Inicializar conexión Drive (cacheado en session_state)
-if 'drive_connected' not in st.session_state:
+# Inicializar conexión Drive
+if 'drive_error' not in st.session_state:
+    st.session_state.drive_error = None
+
+if 'drive_connected' not in st.session_state or st.session_state.get('_retry_drive', False):
+    st.session_state._retry_drive = False
     st.session_state.drive_connected = init_drive_connection()
 elif st.session_state.drive_connected:
     # Re-configurar storage mode (se pierde entre reruns)
@@ -1023,12 +1048,23 @@ with st.sidebar:
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
-        <div style="background: linear-gradient(135deg, #3a2a1a 0%, #261a0d 100%); border: 1px solid #7a5a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 15px; text-align: center;">
-            <span style="font-size: 1.1rem;">💾</span>
-            <span style="color: #c9a227; font-weight: bold; font-size: 0.85rem;"> Modo Local</span>
-            <br><span style="color: #888; font-size: 0.7rem;">Descarga los archivos manualmente</span>
+        <div style="background: linear-gradient(135deg, #3a1a1a 0%, #260d0d 100%); border: 1px solid #7a2a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 15px; text-align: center;">
+            <span style="font-size: 1.1rem;">⚠️</span>
+            <span style="color: #ff6b6b; font-weight: bold; font-size: 0.85rem;"> Drive Desconectado</span>
+            <br><span style="color: #888; font-size: 0.7rem;">Modo local - descarga manual</span>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Mostrar error detallado si lo hay
+        if st.session_state.get('drive_error'):
+            with st.expander("🔍 Ver detalle del error", expanded=False):
+                st.code(st.session_state.drive_error, language="text")
+        
+        # Botón para reintentar conexión
+        if st.button("🔄 Reintentar conexión Drive", use_container_width=True, key="retry_drive"):
+            drive_manager.reset_service() if _drive_available else None
+            st.session_state._retry_drive = True
+            st.rerun()
     
     # Navegación de páginas
     st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
