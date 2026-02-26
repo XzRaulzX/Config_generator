@@ -8,7 +8,30 @@ from pathlib import Path
 # Obtener el directorio base
 BASE_DIR = Path(__file__).parent
 CONFIGS_PATH = BASE_DIR / "configs"
+# ============================================================================
+# MODO DE ALMACENAMIENTO (local / drive)
+# ============================================================================
 
+_storage_mode = 'local'  # 'local' o 'drive'
+_drive_module = None      # Referencia al módulo drive_manager
+
+
+def set_storage_mode(mode: str, drive_module=None):
+    """
+    Configura el modo de almacenamiento.
+    
+    Args:
+        mode: 'local' para archivos locales, 'drive' para Google Drive
+        drive_module: Módulo drive_manager (requerido si mode='drive')
+    """
+    global _storage_mode, _drive_module
+    _storage_mode = mode
+    _drive_module = drive_module
+
+
+def get_storage_mode() -> str:
+    """Retorna el modo de almacenamiento actual ('local' o 'drive')"""
+    return _storage_mode
 
 def generate_crafting_block(data: dict) -> str:
     """
@@ -90,7 +113,8 @@ def generate_crafting_block(data: dict) -> str:
 
 def get_config_file_content(job_key: str) -> str:
     """
-    Lee el contenido de un archivo de configuración existente
+    Lee el contenido de un archivo de configuración existente.
+    Soporta modo local y modo Drive.
     
     Args:
         job_key: Clave del job (ej: 'armero', 'medicos')
@@ -98,14 +122,55 @@ def get_config_file_content(job_key: str) -> str:
     Returns:
         str: Contenido del archivo o None si no existe
     """
-    config_file = CONFIGS_PATH / f"config_{job_key}.lua"
-    try:
-        if config_file.exists():
-            with open(config_file, 'r', encoding='utf-8') as f:
-                return f.read()
-    except Exception as e:
-        print(f"Error leyendo config: {e}")
-    return None
+    filename = f"config_{job_key}.lua"
+    
+    if _storage_mode == 'drive' and _drive_module:
+        try:
+            return _drive_module.read_file(filename)
+        except Exception as e:
+            print(f"Error leyendo config desde Drive: {e}")
+            return None
+    else:
+        config_file = CONFIGS_PATH / filename
+        try:
+            if config_file.exists():
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    return f.read()
+        except Exception as e:
+            print(f"Error leyendo config local: {e}")
+        return None
+
+
+def save_config_file(job_key: str, content: str) -> bool:
+    """
+    Guarda el contenido de un archivo de configuración.
+    En modo Drive, escribe a Google Drive. En modo local, escribe al disco.
+    
+    Args:
+        job_key: Clave del job (ej: 'armero', 'medicos')
+        content: Contenido completo del archivo Lua
+    
+    Returns:
+        bool: True si se guardó correctamente
+    """
+    filename = f"config_{job_key}.lua"
+    
+    if _storage_mode == 'drive' and _drive_module:
+        try:
+            return _drive_module.write_file(filename, content)
+        except Exception as e:
+            print(f"Error guardando config en Drive: {e}")
+            return False
+    else:
+        config_file = CONFIGS_PATH / filename
+        try:
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return True
+        except Exception as e:
+            print(f"Error guardando config local: {e}")
+            return False
 
 
 def add_crafting_to_config(job_key: str, new_crafting_block: str) -> str:
@@ -212,16 +277,24 @@ def get_config_name(job_key: str) -> str:
 
 def get_available_configs() -> list:
     """
-    Obtiene la lista de archivos de configuración disponibles
+    Obtiene la lista de archivos de configuración disponibles.
+    Soporta modo local y modo Drive.
     
     Returns:
-        list: Lista de nombres de archivos de config
+        list: Lista de claves de jobs disponibles (ej: ['armero', 'medicos'])
     """
-    configs = []
-    if CONFIGS_PATH.exists():
-        for f in CONFIGS_PATH.glob("config_*.lua"):
-            configs.append(f.stem.replace("config_", ""))
-    return sorted(configs)
+    if _storage_mode == 'drive' and _drive_module:
+        try:
+            return _drive_module.get_available_config_keys()
+        except Exception as e:
+            print(f"Error listando configs desde Drive: {e}")
+            return []
+    else:
+        configs = []
+        if CONFIGS_PATH.exists():
+            for f in CONFIGS_PATH.glob("config_*.lua"):
+                configs.append(f.stem.replace("config_", ""))
+        return sorted(configs)
 
 
 # ============================================================================

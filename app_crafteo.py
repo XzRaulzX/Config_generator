@@ -17,8 +17,48 @@ from lua_crafteo_generator import (
     delete_crafting_from_config,
     comment_crafting_in_config,
     uncomment_crafting_in_config,
-    parse_commented_blocks
+    parse_commented_blocks,
+    save_config_file,
+    set_storage_mode,
+    get_storage_mode
 )
+
+# ============================================================================
+# GOOGLE DRIVE - INICIALIZACIÓN
+# ============================================================================
+_drive_available = False
+try:
+    import drive_manager
+    _drive_available = True
+except ImportError:
+    _drive_available = False
+
+
+def init_drive_connection():
+    """Intenta conectar con Google Drive y configurar el modo de almacenamiento."""
+    if not _drive_available:
+        return False
+    
+    if not drive_manager.has_token():
+        return False
+    
+    try:
+        if drive_manager.is_authenticated():
+            set_storage_mode('drive', drive_manager)
+            return True
+    except Exception:
+        pass
+    
+    return False
+
+
+# Inicializar conexión Drive (cacheado en session_state)
+if 'drive_connected' not in st.session_state:
+    st.session_state.drive_connected = init_drive_connection()
+elif st.session_state.drive_connected:
+    # Re-configurar storage mode (se pierde entre reruns)
+    if _drive_available:
+        set_storage_mode('drive', drive_manager)
 
 # ============================================================================
 # CONFIGURACIÓN DE LA PÁGINA
@@ -961,6 +1001,24 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
+    # Estado de Google Drive
+    if st.session_state.drive_connected:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #1a3a1a 0%, #0d260d 100%); border: 1px solid #2a7a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 15px; text-align: center;">
+            <span style="font-size: 1.1rem;">☁️</span>
+            <span style="color: #4CAF50; font-weight: bold; font-size: 0.85rem;"> Google Drive Conectado</span>
+            <br><span style="color: #888; font-size: 0.7rem;">Los cambios se guardan directamente</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #3a2a1a 0%, #261a0d 100%); border: 1px solid #7a5a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 15px; text-align: center;">
+            <span style="font-size: 1.1rem;">💾</span>
+            <span style="color: #c9a227; font-weight: bold; font-size: 0.85rem;"> Modo Local</span>
+            <br><span style="color: #888; font-size: 0.7rem;">Descarga los archivos manualmente</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
     # Stats
     st.markdown(f"""
     <div class="sidebar-stat">
@@ -1685,15 +1743,33 @@ with col_output:
             )
             
             if config_editado:
-                st.download_button(
-                    label=f"📥 Descargar config_{job_seleccionado}.lua editado",
-                    data=config_editado,
-                    file_name=f"config_{job_seleccionado}.lua",
-                    mime="text/plain",
-                    use_container_width=True,
-                    type="primary",
-                    key="download_edited_config"
-                )
+                if st.session_state.drive_connected:
+                    if st.button("☁️ Guardar cambios en Drive", use_container_width=True, type="primary", key="save_edit_drive"):
+                        if save_config_file(job_seleccionado, config_editado):
+                            st.success("✅ ¡Cambios guardados en Google Drive!")
+                            drive_manager.clear_cache()
+                        else:
+                            st.error("❌ Error al guardar en Drive")
+                    
+                    with st.expander("📥 Descargar archivo (alternativa)"):
+                        st.download_button(
+                            label=f"📥 Descargar config_{job_seleccionado}.lua editado",
+                            data=config_editado,
+                            file_name=f"config_{job_seleccionado}.lua",
+                            mime="text/plain",
+                            use_container_width=True,
+                            key="download_edited_config"
+                        )
+                else:
+                    st.download_button(
+                        label=f"📥 Descargar config_{job_seleccionado}.lua editado",
+                        data=config_editado,
+                        file_name=f"config_{job_seleccionado}.lua",
+                        mime="text/plain",
+                        use_container_width=True,
+                        type="primary",
+                        key="download_edited_config"
+                    )
                 
                 with st.expander("👁️ Ver preview del config editado", expanded=False):
                     st.code(config_editado, language="lua")
@@ -1716,20 +1792,38 @@ with col_output:
             )
             
             if config_desactivado:
-                st.download_button(
-                    label=f"🚫 Descargar config_{job_seleccionado}.lua con crafteo desactivado",
-                    data=config_desactivado,
-                    file_name=f"config_{job_seleccionado}.lua",
-                    mime="text/plain",
-                    use_container_width=True,
-                    key="download_disabled_config"
-                )
+                if st.session_state.drive_connected:
+                    if st.button("☁️🚫 Desactivar y guardar en Drive", use_container_width=True, key="save_disable_drive"):
+                        if save_config_file(job_seleccionado, config_desactivado):
+                            st.success(f"✅ Crafteo **{st.session_state.nombre_original}** desactivado y guardado en Drive!")
+                            drive_manager.clear_cache()
+                        else:
+                            st.error("❌ Error al guardar en Drive")
+                    
+                    with st.expander("📥 Descargar archivo (alternativa)"):
+                        st.download_button(
+                            label=f"🚫 Descargar config con crafteo desactivado",
+                            data=config_desactivado,
+                            file_name=f"config_{job_seleccionado}.lua",
+                            mime="text/plain",
+                            use_container_width=True,
+                            key="download_disabled_config"
+                        )
+                else:
+                    st.download_button(
+                        label=f"🚫 Descargar config_{job_seleccionado}.lua con crafteo desactivado",
+                        data=config_desactivado,
+                        file_name=f"config_{job_seleccionado}.lua",
+                        mime="text/plain",
+                        use_container_width=True,
+                        key="download_disabled_config"
+                    )
         
         # ===== MODO CREACIÓN: Añadir nuevo =====
         else:
             st.markdown("""
             <div class="section-card">
-                <div class="section-title">📁 Descargar Config Completo</div>
+                <div class="section-title">📁 Guardar Config Completo</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1745,16 +1839,33 @@ with col_output:
                 
                 st.success(f"✅ Archivo `config_{job_seleccionado}.lua` encontrado con **{crafteos_existentes}** crafteos existentes")
                 
-                # Botón para descargar el config completo
-                st.download_button(
-                    label=f"📥 Descargar config_{job_seleccionado}.lua completo",
-                    data=config_completo,
-                    file_name=f"config_{job_seleccionado}.lua",
-                    mime="text/plain",
-                    use_container_width=True,
-                    type="primary",
-                    key="download_full_config"
-                )
+                if st.session_state.drive_connected:
+                    if st.button(f"☁️ Guardar config_{job_seleccionado}.lua en Drive", use_container_width=True, type="primary", key="save_add_drive"):
+                        if save_config_file(job_seleccionado, config_completo):
+                            st.success("✅ ¡Crafteo añadido y guardado en Google Drive!")
+                            drive_manager.clear_cache()
+                        else:
+                            st.error("❌ Error al guardar en Drive")
+                    
+                    with st.expander("📥 Descargar archivo (alternativa)"):
+                        st.download_button(
+                            label=f"📥 Descargar config_{job_seleccionado}.lua completo",
+                            data=config_completo,
+                            file_name=f"config_{job_seleccionado}.lua",
+                            mime="text/plain",
+                            use_container_width=True,
+                            key="download_full_config"
+                        )
+                else:
+                    st.download_button(
+                        label=f"📥 Descargar config_{job_seleccionado}.lua completo",
+                        data=config_completo,
+                        file_name=f"config_{job_seleccionado}.lua",
+                        mime="text/plain",
+                        use_container_width=True,
+                        type="primary",
+                        key="download_full_config"
+                    )
                 
                 # Mostrar preview del config
                 with st.expander("👁️ Ver preview del config completo", expanded=False):
@@ -1779,31 +1890,58 @@ with col_output:
                 
                 nuevo_config = f"Config.{config_name} = {{{codigo_lua}\n}}"
                 
-                st.download_button(
-                    label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
-                    data=nuevo_config,
-                    file_name=f"config_{job_seleccionado}.lua",
-                    mime="text/plain",
-                    use_container_width=True,
-                    type="primary",
-                    key="download_new_config"
-                )
+                if st.session_state.drive_connected:
+                    if st.button(f"☁️ Crear config_{job_seleccionado}.lua en Drive", use_container_width=True, type="primary", key="save_new_drive"):
+                        if save_config_file(job_seleccionado, nuevo_config):
+                            st.success("✅ ¡Nuevo config creado y guardado en Google Drive!")
+                            drive_manager.clear_cache()
+                        else:
+                            st.error("❌ Error al guardar en Drive")
+                    
+                    with st.expander("📥 Descargar archivo (alternativa)"):
+                        st.download_button(
+                            label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
+                            data=nuevo_config,
+                            file_name=f"config_{job_seleccionado}.lua",
+                            mime="text/plain",
+                            use_container_width=True,
+                            key="download_new_config"
+                        )
+                else:
+                    st.download_button(
+                        label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
+                        data=nuevo_config,
+                        file_name=f"config_{job_seleccionado}.lua",
+                        mime="text/plain",
+                        use_container_width=True,
+                        type="primary",
+                        key="download_new_config"
+                    )
         
         # Instrucciones
         st.markdown("---")
-        st.markdown(f"""
-        **📁 Instrucciones de instalación:**
-        
-        1. Descarga el archivo `config_{job_seleccionado}.lua` completo
-        2. Reemplaza el archivo existente en tu servidor
-        3. Recarga el servidor con `/refresh`
-        
-        **O manualmente:**
-        1. Abre el archivo `config_{job_seleccionado}.lua`
-        2. Copia el código del crafteo generado
-        3. Pégalo antes del último `}}`
-        4. Guarda y recarga
-        """)
+        if st.session_state.drive_connected:
+            st.markdown(f"""
+            **☁️ Instrucciones (modo Drive):**
+            
+            1. Pulsa el botón **Guardar en Drive** para aplicar los cambios
+            2. El archivo se actualiza automáticamente en la carpeta compartida
+            3. Recarga el servidor con `/refresh`
+            """)
+        else:
+            st.markdown(f"""
+            **📁 Instrucciones de instalación:**
+            
+            1. Descarga el archivo `config_{job_seleccionado}.lua` completo
+            2. Reemplaza el archivo existente en tu servidor
+            3. Recarga el servidor con `/refresh`
+            
+            **O manualmente:**
+            1. Abre el archivo `config_{job_seleccionado}.lua`
+            2. Copia el código del crafteo generado
+            3. Pégalo antes del último `}}`
+            4. Guarda y recarga
+            """)
     
     # ===== SECCIÓN: CRAFTEOS DESACTIVADOS =====
     st.markdown("---")
@@ -1817,7 +1955,7 @@ with col_output:
                 st.markdown("""
                 <div class="info-tip">
                     <strong>💡 Info:</strong> Estos crafteos están comentados en el archivo Lua y no están activos en el servidor.
-                    Puedes reactivarlos descargando el config con el crafteo descomentado.
+                    Puedes reactivarlos para que vuelvan a estar disponibles.
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1847,14 +1985,23 @@ with col_output:
                         )
                         
                         if config_reactivado:
-                            st.download_button(
-                                label="✅ Reactivar",
-                                data=config_reactivado,
-                                file_name=f"config_{job_seleccionado}.lua",
-                                mime="text/plain",
-                                use_container_width=True,
-                                key=f"reactivar_{idx_dis}"
-                            )
+                            if st.session_state.drive_connected:
+                                if st.button(f"✅ Reactivar", use_container_width=True, key=f"reactivar_drive_{idx_dis}"):
+                                    if save_config_file(job_seleccionado, config_reactivado):
+                                        st.success(f"✅ **{nombre_dis}** reactivado y guardado en Drive!")
+                                        drive_manager.clear_cache()
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Error al guardar en Drive")
+                            else:
+                                st.download_button(
+                                    label="✅ Reactivar",
+                                    data=config_reactivado,
+                                    file_name=f"config_{job_seleccionado}.lua",
+                                    mime="text/plain",
+                                    use_container_width=True,
+                                    key=f"reactivar_{idx_dis}"
+                                )
 
 # ============================================================================
 # FOOTER
