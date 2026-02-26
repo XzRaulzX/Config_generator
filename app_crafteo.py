@@ -1109,6 +1109,7 @@ with col_form:
     default_currency_type = 0
     default_location = 0
     default_animation = "craft"
+    default_pack = ""
     
     # Si estamos en modo edición, cargar crafteos existentes
     if st.session_state.modo_edicion:
@@ -1165,6 +1166,7 @@ with col_form:
                 default_currency_type = crafteo_data.get('currency_type', 0)
                 default_location = crafteo_data.get('location', 0)
                 default_animation = crafteo_data.get('animation', 'craft')
+                default_pack = crafteo_data.get('pack', '')
                 
                 # Determinar categoría por defecto del crafteo cargado
                 loaded_cat = crafteo_data.get('categoria', '')
@@ -1522,6 +1524,18 @@ with col_form:
                 index=anim_default_idx,
                 format_func=lambda x: ANIMACIONES[x]
             )
+        
+        # Pack (opcional)
+        pack_opciones = ["", "comun", "mejicana", "afroamericana", "oriental", "inglesa", "nativo", "campero"]
+        pack_default_idx = pack_opciones.index(default_pack) if default_pack in pack_opciones else 0
+        
+        pack = st.selectbox(
+            "📦 Pack (opcional)",
+            options=pack_opciones,
+            index=pack_default_idx,
+            format_func=lambda x: "-- Sin pack --" if x == "" else x.capitalize(),
+            help="Agrupación de pack para el crafteo (usado en cocina)"
+        )
 
 # ============================================================================
 # COLUMNA DERECHA - OUTPUT
@@ -1575,7 +1589,8 @@ with col_output:
             'location': location,
             'animation': animation,
             'use_currency': use_currency,
-            'job': job_value
+            'job': job_value,
+            'pack': pack
         }
         
         codigo_lua = generate_crafting_block(datos_crafteo)

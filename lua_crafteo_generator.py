@@ -64,6 +64,10 @@ def generate_crafting_block(data: dict) -> str:
     else:
         job_str = str(job_value)
     
+    # Línea opcional de Pack
+    pack_value = data.get('pack', '')
+    pack_line = f'\n    Pack = "{pack_value}",' if pack_value else ''
+    
     # Generar el bloque de crafteo
     lua_code = f"""{{
     TakeItems = {str(data.get('take_items', True)).lower()},
@@ -71,7 +75,7 @@ def generate_crafting_block(data: dict) -> str:
     Location = {data.get('location', 0)},
     Animation = "{data.get('animation', 'craft')}",
     Category = "{data['categoria']}",
-    Text = "{data['nombre']}",
+    Text = "{data['nombre']}",{pack_line}
     Desc = "{data['descripcion']}",
     Reward = {reward_block},
     Minlvl = {data.get('nivel_minimo', 0)},
@@ -435,6 +439,11 @@ def _parse_single_block(block: str) -> dict:
     m = re.search(r'Ilegal\s*=\s*(true|false)', block)
     if m:
         crafteo['ilegal'] = m.group(1) == 'true'
+    
+    # Pack (string, opcional)
+    m = re.search(r'Pack\s*=\s*"([^"]*)"', block)
+    if m:
+        crafteo['pack'] = m.group(1)
     
     # Job - puede ser número o tabla
     m = re.search(r'Job\s*=\s*(\{[^}]*\}|\d+)', block)
