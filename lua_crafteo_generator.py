@@ -23,7 +23,8 @@ def generate_crafting_block(data: dict) -> str:
     # Formatear ingredientes
     items_lines = []
     for ing in data['ingredientes']:
-        take_str = ",\n        take = true" if data.get('take_items', True) else ""
+        take_value = "true" if data.get('take_items', True) else "false"
+        take_str = f",\n        take = {take_value}"
         items_lines.append(f"""{{
         name = "{ing['name']}",
         count = {ing['count']}{take_str}
