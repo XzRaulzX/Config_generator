@@ -32,6 +32,9 @@ _file_cache = {}  # filename -> file_id
 
 def _debug_private_key(pk: str) -> str:
     """Genera un diagnóstico detallado del private_key para depuración."""
+    import re
+    import base64
+    
     lines = pk.split('\n')
     non_empty = [l for l in lines if l.strip()]
     info = []
@@ -44,36 +47,91 @@ def _debug_private_key(pk: str) -> str:
     has_end = '-----END PRIVATE KEY-----' in pk or '-----END RSA PRIVATE KEY-----' in pk
     info.append(f"Tiene BEGIN: {has_begin}, Tiene END: {has_end}")
     
-    # Verificar si hay \n literales (backslash + n) en vez de newlines reales
+    # Verificar \n literales vs reales
     literal_backslash_n = pk.count('\\n')
     real_newlines = pk.count('\n')
     info.append(f"Newlines reales: {real_newlines}, Literales \\n: {literal_backslash_n}")
     
-    if non_empty:
-        info.append(f"Primera línea: {repr(non_empty[0][:50])}")
-        info.append(f"Última línea: {repr(non_empty[-1][:50])}")
+    # Detectar \r (Windows line endings)
+    cr_count = pk.count('\r')
+    if cr_count:
+        info.append(f"⚠ Tiene \\r (carriage return): {cr_count}")
     
-    # Verificar caracteres problemáticos
-    import re
-    # Base64 válido solo tiene A-Za-z0-9+/=
-    if len(non_empty) > 2:  # Excluir BEGIN/END
-        body = ''.join(non_empty[1:-1])
-        invalid_chars = set(re.findall(r'[^A-Za-z0-9+/=\s]', body))
-        if invalid_chars:
-            info.append(f"⚠ Caracteres inválidos en body: {invalid_chars}")
+    # Detectar caracteres invisibles problemáticos
+    invisible_chars = {}
+    for i, c in enumerate(pk):
+        cp = ord(c)
+        if cp > 127:
+            invisible_chars[f"U+{cp:04X}"] = invisible_chars.get(f"U+{cp:04X}", 0) + 1
+        elif cp < 32 and c not in '\n\r\t':
+            invisible_chars[f"0x{cp:02X}"] = invisible_chars.get(f"0x{cp:02X}", 0) + 1
+    if invisible_chars:
+        info.append(f"⚠ Caracteres invisibles/non-ASCII: {invisible_chars}")
+    
+    # Verificar espacios al final de las líneas
+    lines_with_trailing = [i+1 for i, l in enumerate(lines) if l != l.rstrip(' \t')]
+    if lines_with_trailing:
+        info.append(f"⚠ Líneas con espacios al final: {lines_with_trailing[:5]}")
+    
+    if non_empty:
+        info.append(f"Primera línea: {repr(non_empty[0][:60])}")
+        info.append(f"Última línea: {repr(non_empty[-1][:60])}")
+    
+    # Verificar body base64
+    if len(non_empty) > 2:
+        body_lines = non_empty[1:-1]
+        body = ''.join(l.strip() for l in body_lines)
+        invalid_chars_set = set(re.findall(r'[^A-Za-z0-9+/=]', body))
+        if invalid_chars_set:
+            info.append(f"⚠ Caracteres inválidos en body: {invalid_chars_set}")
         else:
             info.append(f"Body base64: {len(body)} chars, OK")
+        
+        # Intentar decodificar base64
+        try:
+            decoded = base64.b64decode(body)
+            info.append(f"Base64 decodificado: {len(decoded)} bytes")
+            info.append(f"Primeros 8 bytes (hex): {decoded[:8].hex()}")
+            # PKCS#8 empieza con 0x30 (SEQUENCE)
+            if decoded[0] == 0x30:
+                info.append("Estructura ASN.1: Empieza con SEQUENCE (0x30) ✓")
+            else:
+                info.append(f"⚠ Estructura ASN.1: Primer byte es 0x{decoded[0]:02X}, esperado 0x30")
+        except Exception as b64_err:
+            info.append(f"⚠ Error decodificando base64: {b64_err}")
+        
+        # Intentar cargar con cryptography directamente
+        try:
+            from cryptography.hazmat.primitives.serialization import load_pem_private_key
+            load_pem_private_key(pk.encode('utf-8'), password=None)
+            info.append("✓ cryptography.load_pem_private_key: ÉXITO")
+        except Exception as crypto_err:
+            info.append(f"✗ cryptography.load_pem_private_key: {type(crypto_err).__name__}: {crypto_err}")
+            # Intentar con la key limpia (sin \r, sin trailing spaces)
+            try:
+                clean_pk = '\n'.join(l.rstrip() for l in pk.replace('\r', '').split('\n'))
+                if not clean_pk.endswith('\n'):
+                    clean_pk += '\n'
+                load_pem_private_key(clean_pk.encode('utf-8'), password=None)
+                info.append("✓ Con key limpia (sin \\r, sin trailing spaces): ÉXITO")
+                info.append(">>> SOLUCIÓN: La key tiene \\r o trailing spaces")
+            except Exception as crypto_err2:
+                info.append(f"✗ Con key limpia: {type(crypto_err2).__name__}: {crypto_err2}")
     
     return '\n'.join(info)
 
 
 def _normalize_private_key(pk: str) -> str:
-    """Normaliza el private_key asegurando saltos de línea reales y formato PEM correcto."""
+    """Normaliza el private_key asegurando formato PEM limpio."""
     # Paso 1: Reemplazar \n literales (2 chars: backslash + n) por newlines reales
     pk = pk.replace('\\n', '\n')
-    # Paso 2: Limpiar espacios sobrantes
+    # Paso 2: Eliminar \r (Windows line endings)
+    pk = pk.replace('\r', '')
+    # Paso 3: Eliminar trailing spaces en cada línea
+    pk = '\n'.join(line.rstrip() for line in pk.split('\n'))
+    # Paso 4: Limpiar espacios sobrantes al inicio/final
     pk = pk.strip()
-    # Paso 3: Asegurar que termina con newline (requerido por PEM)
+    # Paso 5: Asegurar que termina con newline (requerido por PEM)
     if not pk.endswith('\n'):
         pk += '\n'
     return pk
