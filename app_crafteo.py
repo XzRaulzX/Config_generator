@@ -11,7 +11,10 @@ from config_items import (
 from lua_crafteo_generator import (
     generate_crafting_block, 
     add_crafting_to_config,
-    get_config_file_content
+    get_config_file_content,
+    parse_crafting_blocks,
+    replace_crafting_in_config,
+    delete_crafting_from_config
 )
 
 # ============================================================================
@@ -924,6 +927,16 @@ if 'search_recompensa' not in st.session_state:
 if 'search_ingrediente' not in st.session_state:
     st.session_state.search_ingrediente = ""
 
+# Estado para modo edición
+if 'modo_edicion' not in st.session_state:
+    st.session_state.modo_edicion = False
+
+if 'crafteo_editando' not in st.session_state:
+    st.session_state.crafteo_editando = None
+
+if 'nombre_original' not in st.session_state:
+    st.session_state.nombre_original = None
+
 # ============================================================================
 # HEADER PRINCIPAL
 # ============================================================================
@@ -1056,8 +1069,116 @@ with col_form:
         st.session_state.job_seleccionado = job_seleccionado
         st.session_state.ingredientes = []
         st.session_state.recompensas = []
+        st.session_state.modo_edicion = False
+        st.session_state.crafteo_editando = None
+        st.session_state.nombre_original = None
     
     job_data = JOBS[job_seleccionado]
+    
+    # ----- MODO: CREAR / EDITAR -----
+    st.markdown("""
+    <div class="section-card">
+        <div class="section-title">🔧 Modo de Trabajo</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    modo = st.radio(
+        "¿Qué deseas hacer?",
+        options=["crear", "editar"],
+        format_func=lambda x: "✨ Crear nuevo crafteo" if x == "crear" else "✏️ Editar crafteo existente",
+        horizontal=True,
+        key="modo_trabajo"
+    )
+    
+    # Si cambia de modo, limpiar estado
+    nuevo_modo_edicion = (modo == "editar")
+    if nuevo_modo_edicion != st.session_state.modo_edicion:
+        st.session_state.modo_edicion = nuevo_modo_edicion
+        st.session_state.ingredientes = []
+        st.session_state.recompensas = []
+        st.session_state.crafteo_editando = None
+        st.session_state.nombre_original = None
+    
+    # Variables por defecto para campos del formulario
+    default_nombre = ""
+    default_nivel = 0
+    default_tipo = "item"
+    default_categoria_idx = None
+    default_take_items = True
+    default_use_currency = False
+    default_currency_type = 0
+    default_location = 0
+    default_animation = "craft"
+    
+    # Si estamos en modo edición, cargar crafteos existentes
+    if st.session_state.modo_edicion:
+        existing_config = get_config_file_content(job_seleccionado)
+        if existing_config:
+            crafteos_existentes = parse_crafting_blocks(existing_config)
+            
+            if crafteos_existentes:
+                nombres_crafteos = [c.get('nombre', '???') for c in crafteos_existentes]
+                
+                crafteo_selected = st.selectbox(
+                    "📋 Selecciona el crafteo a editar",
+                    options=range(len(nombres_crafteos)),
+                    format_func=lambda i: nombres_crafteos[i],
+                    key="crafteo_editar_select"
+                )
+                
+                crafteo_data = crafteos_existentes[crafteo_selected]
+                
+                # Detectar si cambió la selección del crafteo
+                nombre_sel = crafteo_data.get('nombre', '')
+                if st.session_state.nombre_original != nombre_sel:
+                    st.session_state.nombre_original = nombre_sel
+                    st.session_state.crafteo_editando = crafteo_data
+                    
+                    # Cargar ingredientes
+                    ingredientes_cargados = []
+                    for ing in crafteo_data.get('ingredientes', []):
+                        ingredientes_cargados.append({
+                            'name': ing.get('name', ''),
+                            'label': ALL_ITEMS.get(ing.get('name', ''), ing.get('name', '')),
+                            'count': ing.get('count', 1)
+                        })
+                    st.session_state.ingredientes = ingredientes_cargados
+                    
+                    # Cargar recompensas
+                    recompensas_cargadas = []
+                    for rew in crafteo_data.get('recompensas', []):
+                        recompensas_cargadas.append({
+                            'name': rew.get('name', ''),
+                            'label': ALL_ITEMS.get(rew.get('name', ''), rew.get('name', '')),
+                            'count': rew.get('count', 1)
+                        })
+                    st.session_state.recompensas = recompensas_cargadas
+                    
+                    st.rerun()
+                
+                # Cargar defaults del crafteo seleccionado
+                default_nombre = crafteo_data.get('nombre', '')
+                default_nivel = crafteo_data.get('nivel_minimo', 0)
+                default_tipo = crafteo_data.get('tipo', 'item')
+                default_take_items = crafteo_data.get('take_items', True)
+                default_use_currency = crafteo_data.get('use_currency', False)
+                default_currency_type = crafteo_data.get('currency_type', 0)
+                default_location = crafteo_data.get('location', 0)
+                default_animation = crafteo_data.get('animation', 'craft')
+                
+                # Determinar categoría por defecto del crafteo cargado
+                loaded_cat = crafteo_data.get('categoria', '')
+                category_keys_temp = list(CATEGORIAS_CRAFTEO.keys())
+                if loaded_cat in category_keys_temp:
+                    default_categoria_idx = category_keys_temp.index(loaded_cat)
+                
+                st.success(f"📝 Editando: **{default_nombre}**")
+            else:
+                st.warning("⚠️ No se encontraron crafteos en este archivo de configuración")
+                st.session_state.modo_edicion = False
+        else:
+            st.warning(f"⚠️ No existe el archivo `config_{job_seleccionado}.lua`")
+            st.session_state.modo_edicion = False
     
     # Categoría del crafteo (puede ser diferente al job del config)
     st.markdown("""
@@ -1067,15 +1188,20 @@ with col_form:
     </div>
     """, unsafe_allow_html=True)
     
-    # Obtener el índice por defecto basado en el job seleccionado
-    default_category = job_data['category']
+    # Obtener el índice por defecto basado en el job seleccionado o el crafteo cargado
+    if default_categoria_idx is not None:
+        cat_default_index = default_categoria_idx
+    else:
+        default_category = job_data['category']
+        category_keys = list(CATEGORIAS_CRAFTEO.keys())
+        cat_default_index = category_keys.index(default_category) if default_category in category_keys else 0
+    
     category_keys = list(CATEGORIAS_CRAFTEO.keys())
-    default_index = category_keys.index(default_category) if default_category in category_keys else 0
     
     categoria_crafteo = st.selectbox(
         "Categoría del Crafteo",
         options=category_keys,
-        index=default_index,
+        index=cat_default_index,
         format_func=lambda x: CATEGORIAS_CRAFTEO[x],
         help="En qué categoría aparecerá este crafteo en el menú del jugador"
     )
@@ -1092,6 +1218,7 @@ with col_form:
     with col_info1:
         nombre = st.text_input(
             "Nombre del Crafteo *",
+            value=default_nombre,
             placeholder="Ej: Munición de pistola",
             help="Nombre que verá el jugador en el menú"
         )
@@ -1101,7 +1228,7 @@ with col_form:
             "Nivel Mínimo",
             min_value=0,
             max_value=100,
-            value=0,
+            value=default_nivel,
             help="Nivel requerido para craftear"
         )
     
@@ -1111,9 +1238,13 @@ with col_form:
     else:
         tipo_options = {'item': '📦 Item Normal'}
     
+    tipo_keys = list(tipo_options.keys())
+    tipo_default_idx = tipo_keys.index(default_tipo) if default_tipo in tipo_keys else 0
+    
     tipo = st.selectbox(
         "Tipo de Crafteo",
-        options=list(tipo_options.keys()),
+        options=tipo_keys,
+        index=tipo_default_idx,
         format_func=lambda x: tipo_options[x],
         help="Tipo de item que se craftea"
     )
@@ -1354,13 +1485,13 @@ with col_form:
         with col_adv1:
             take_items = st.checkbox(
                 "🔄 Consumir ingredientes",
-                value=True,
+                value=default_take_items,
                 help="Los ingredientes se consumen al craftear"
             )
             
             use_currency = st.checkbox(
                 "💰 Cobrar dinero",
-                value=False,
+                value=default_use_currency,
                 help="Cobrar dinero además de ingredientes"
             )
             
@@ -1368,6 +1499,7 @@ with col_form:
                 currency_type = st.selectbox(
                     "Tipo de moneda",
                     options=[0, 1],
+                    index=default_currency_type,
                     format_func=lambda x: "💵 Cash ($)" if x == 0 else "🪙 Gold (oro)"
                 )
             else:
@@ -1377,13 +1509,17 @@ with col_form:
             location = st.number_input(
                 "📍 Location ID",
                 min_value=0,
-                value=0,
+                value=default_location,
                 help="ID de ubicación para el crafteo"
             )
             
+            anim_keys = list(ANIMACIONES.keys())
+            anim_default_idx = anim_keys.index(default_animation) if default_animation in anim_keys else 0
+            
             animation = st.selectbox(
                 "🎬 Animación",
-                options=list(ANIMACIONES.keys()),
+                options=anim_keys,
+                index=anim_default_idx,
                 format_func=lambda x: ANIMACIONES[x]
             )
 
@@ -1513,67 +1649,102 @@ with col_output:
         
         # Sección de Config Completo
         st.markdown("---")
-        st.markdown("""
-        <div class="section-card">
-            <div class="section-title">📁 Descargar Config Completo</div>
-        </div>
-        """, unsafe_allow_html=True)
         
-        # Verificar si existe el archivo de config
-        existing_config = get_config_file_content(job_seleccionado)
-        
-        if existing_config:
-            # Generar el config completo con el nuevo crafteo añadido
-            config_completo = add_crafting_to_config(job_seleccionado, codigo_lua)
+        # ===== MODO EDICIÓN: Guardar cambios =====
+        if st.session_state.modo_edicion and st.session_state.nombre_original:
+            st.markdown("""
+            <div class="section-card">
+                <div class="section-title">✏️ Guardar Cambios en Config</div>
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Contar crafteos existentes
-            crafteos_existentes = existing_config.count('Text = ')
+            st.info(f"📝 Editando crafteo: **{st.session_state.nombre_original}** → **{nombre}**")
             
-            st.success(f"✅ Archivo `config_{job_seleccionado}.lua` encontrado con **{crafteos_existentes}** crafteos existentes")
-            
-            # Botón para descargar el config completo
-            st.download_button(
-                label=f"📥 Descargar config_{job_seleccionado}.lua completo",
-                data=config_completo,
-                file_name=f"config_{job_seleccionado}.lua",
-                mime="text/plain",
-                use_container_width=True,
-                type="primary",
-                key="download_full_config"
+            config_editado = replace_crafting_in_config(
+                job_seleccionado, 
+                st.session_state.nombre_original, 
+                codigo_lua
             )
             
-            # Mostrar preview del config
-            with st.expander("👁️ Ver preview del config completo", expanded=False):
-                st.code(config_completo, language="lua")
+            if config_editado:
+                st.download_button(
+                    label=f"📥 Descargar config_{job_seleccionado}.lua editado",
+                    data=config_editado,
+                    file_name=f"config_{job_seleccionado}.lua",
+                    mime="text/plain",
+                    use_container_width=True,
+                    type="primary",
+                    key="download_edited_config"
+                )
+                
+                with st.expander("👁️ Ver preview del config editado", expanded=False):
+                    st.code(config_editado, language="lua")
+            else:
+                st.error("⚠️ No se pudo encontrar el crafteo original para reemplazar")
+        
+        # ===== MODO CREACIÓN: Añadir nuevo =====
         else:
-            st.warning(f"⚠️ No se encontró `config_{job_seleccionado}.lua`. Se creará uno nuevo.")
+            st.markdown("""
+            <div class="section-card">
+                <div class="section-title">📁 Descargar Config Completo</div>
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Crear config nuevo
-            config_name = job_seleccionado.capitalize()
-            if job_seleccionado == 'cocinaDulce':
-                config_name = 'CocinaDulce'
-            elif job_seleccionado == 'cocinaMixta':
-                config_name = 'CocinaMixta'
-            elif job_seleccionado == 'cocinaPacks':
-                config_name = 'CocinaPacks'
-            elif job_seleccionado == 'cocinaTier1':
-                config_name = 'CocinaTier1'
-            elif job_seleccionado == 'cocinaTier2':
-                config_name = 'CocinaTier2'
-            elif job_seleccionado == 'cocinaTier3':
-                config_name = 'CocinaTier3'
+            # Verificar si existe el archivo de config
+            existing_config = get_config_file_content(job_seleccionado)
             
-            nuevo_config = f"Config.{config_name} = {{{codigo_lua}\n}}"
-            
-            st.download_button(
-                label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
-                data=nuevo_config,
-                file_name=f"config_{job_seleccionado}.lua",
-                mime="text/plain",
-                use_container_width=True,
-                type="primary",
-                key="download_new_config"
-            )
+            if existing_config:
+                # Generar el config completo con el nuevo crafteo añadido
+                config_completo = add_crafting_to_config(job_seleccionado, codigo_lua)
+                
+                # Contar crafteos existentes
+                crafteos_existentes = existing_config.count('Text = ')
+                
+                st.success(f"✅ Archivo `config_{job_seleccionado}.lua` encontrado con **{crafteos_existentes}** crafteos existentes")
+                
+                # Botón para descargar el config completo
+                st.download_button(
+                    label=f"📥 Descargar config_{job_seleccionado}.lua completo",
+                    data=config_completo,
+                    file_name=f"config_{job_seleccionado}.lua",
+                    mime="text/plain",
+                    use_container_width=True,
+                    type="primary",
+                    key="download_full_config"
+                )
+                
+                # Mostrar preview del config
+                with st.expander("👁️ Ver preview del config completo", expanded=False):
+                    st.code(config_completo, language="lua")
+            else:
+                st.warning(f"⚠️ No se encontró `config_{job_seleccionado}.lua`. Se creará uno nuevo.")
+                
+                # Crear config nuevo
+                config_name = job_seleccionado.capitalize()
+                if job_seleccionado == 'cocinaDulce':
+                    config_name = 'CocinaDulce'
+                elif job_seleccionado == 'cocinaMixta':
+                    config_name = 'CocinaMixta'
+                elif job_seleccionado == 'cocinaPacks':
+                    config_name = 'CocinaPacks'
+                elif job_seleccionado == 'cocinaTier1':
+                    config_name = 'CocinaTier1'
+                elif job_seleccionado == 'cocinaTier2':
+                    config_name = 'CocinaTier2'
+                elif job_seleccionado == 'cocinaTier3':
+                    config_name = 'CocinaTier3'
+                
+                nuevo_config = f"Config.{config_name} = {{{codigo_lua}\n}}"
+                
+                st.download_button(
+                    label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
+                    data=nuevo_config,
+                    file_name=f"config_{job_seleccionado}.lua",
+                    mime="text/plain",
+                    use_container_width=True,
+                    type="primary",
+                    key="download_new_config"
+                )
         
         # Instrucciones
         st.markdown("---")
