@@ -45,7 +45,6 @@ def init_drive_connection():
     try:
         # Leer credenciales de la cuenta de servicio desde st.secrets
         if "gcp_service_account" not in st.secrets:
-            # Mostrar qué claves hay disponibles para depurar
             available_keys = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else str(type(st.secrets))
             st.session_state.drive_error = (
                 f"No se encontró [gcp_service_account] en st.secrets.\n"
@@ -53,26 +52,28 @@ def init_drive_connection():
             )
             return False
         
-        # Convertir AttrDict de Streamlit a dict Python puro
-        # Round-trip JSON para eliminar tipos especiales de Streamlit
-        import json
+        # Pasar st.secrets directamente (método oficial de Streamlit)
+        # NO convertir a dict ni hacer JSON roundtrip
         raw = st.secrets["gcp_service_account"]
-        secrets_dict = json.loads(json.dumps(dict(raw)))
         
-        # Debug: verificar campos críticos
-        if 'private_key' not in secrets_dict:
-            st.session_state.drive_error = f"Falta 'private_key' en secrets. Campos: {list(secrets_dict.keys())}"
+        # Verificar campos críticos
+        if 'private_key' not in raw:
+            st.session_state.drive_error = f"Falta 'private_key' en secrets. Campos: {list(raw.keys())}"
             return False
-        if 'client_email' not in secrets_dict:
-            st.session_state.drive_error = f"Falta 'client_email' en secrets. Campos: {list(secrets_dict.keys())}"
+        if 'client_email' not in raw:
+            st.session_state.drive_error = f"Falta 'client_email' en secrets. Campos: {list(raw.keys())}"
             return False
         
-        if drive_manager.init_from_secrets(secrets_dict):
+        # init_from_secrets ahora retorna (success, debug_info)
+        success, debug_info = drive_manager.init_from_secrets(raw)
+        st.session_state.drive_debug = debug_info
+        
+        if success:
             st.session_state.drive_error = None
             set_storage_mode('drive', drive_manager)
             return True
         else:
-            st.session_state.drive_error = "drive_manager.init_from_secrets() devolvió False. Revisa los logs del servidor."
+            st.session_state.drive_error = f"Todos los métodos de conexión fallaron.\n\n{debug_info}"
             return False
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -1055,10 +1056,13 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
         
-        # Mostrar error detallado si lo hay
+        # Mostrar error y diagnóstico detallado
         if st.session_state.get('drive_error'):
-            with st.expander("🔍 Ver detalle del error", expanded=False):
+            with st.expander("🔍 Ver diagnóstico completo", expanded=True):
                 st.code(st.session_state.drive_error, language="text")
+                if st.session_state.get('drive_debug'):
+                    st.markdown("**Debug info:**")
+                    st.code(st.session_state.drive_debug, language="text")
         
         # Botón para reintentar conexión
         if st.button("🔄 Reintentar conexión Drive", use_container_width=True, key="retry_drive"):

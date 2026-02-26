@@ -30,89 +30,175 @@ _file_cache = {}  # filename -> file_id
 # AUTENTICACIÓN CON SERVICE ACCOUNT
 # ============================================================================
 
-def get_service(secrets_dict: dict = None):
+def _debug_private_key(pk: str) -> str:
+    """Genera un diagnóstico detallado del private_key para depuración."""
+    lines = pk.split('\n')
+    non_empty = [l for l in lines if l.strip()]
+    info = []
+    info.append(f"Longitud total: {len(pk)} chars")
+    info.append(f"Líneas totales: {len(lines)}, no vacías: {len(non_empty)}")
+    info.append(f"Tipo: {type(pk).__name__}")
+    
+    # Verificar estructura PEM
+    has_begin = '-----BEGIN PRIVATE KEY-----' in pk or '-----BEGIN RSA PRIVATE KEY-----' in pk
+    has_end = '-----END PRIVATE KEY-----' in pk or '-----END RSA PRIVATE KEY-----' in pk
+    info.append(f"Tiene BEGIN: {has_begin}, Tiene END: {has_end}")
+    
+    # Verificar si hay \n literales (backslash + n) en vez de newlines reales
+    literal_backslash_n = pk.count('\\n')
+    real_newlines = pk.count('\n')
+    info.append(f"Newlines reales: {real_newlines}, Literales \\n: {literal_backslash_n}")
+    
+    if non_empty:
+        info.append(f"Primera línea: {repr(non_empty[0][:50])}")
+        info.append(f"Última línea: {repr(non_empty[-1][:50])}")
+    
+    # Verificar caracteres problemáticos
+    import re
+    # Base64 válido solo tiene A-Za-z0-9+/=
+    if len(non_empty) > 2:  # Excluir BEGIN/END
+        body = ''.join(non_empty[1:-1])
+        invalid_chars = set(re.findall(r'[^A-Za-z0-9+/=\s]', body))
+        if invalid_chars:
+            info.append(f"⚠ Caracteres inválidos en body: {invalid_chars}")
+        else:
+            info.append(f"Body base64: {len(body)} chars, OK")
+    
+    return '\n'.join(info)
+
+
+def _normalize_private_key(pk: str) -> str:
+    """Normaliza el private_key asegurando saltos de línea reales y formato PEM correcto."""
+    # Paso 1: Reemplazar \n literales (2 chars: backslash + n) por newlines reales
+    pk = pk.replace('\\n', '\n')
+    # Paso 2: Limpiar espacios sobrantes
+    pk = pk.strip()
+    # Paso 3: Asegurar que termina con newline (requerido por PEM)
+    if not pk.endswith('\n'):
+        pk += '\n'
+    return pk
+
+
+def get_service(secrets_info):
     """
-    Obtiene el servicio autenticado de Google Drive usando Service Account.
-    Escribe un archivo JSON temporal y usa from_service_account_file
-    para máxima compatibilidad.
+    Obtiene el servicio autenticado de Google Drive.
+    Acepta un dict-like (incluido AttrDict de Streamlit).
     """
     global _service
     
     if _service is not None:
         return _service
     
-    if secrets_dict is None:
+    if secrets_info is None:
         raise ValueError(
             "Se necesitan las credenciales de la cuenta de servicio.\n"
             "Configura [gcp_service_account] en los secrets de Streamlit."
         )
     
-    # Escribir a archivo JSON temporal y usar from_service_account_file
-    # Esto evita cualquier problema de tipos/encoding del dict
+    creds = Credentials.from_service_account_info(secrets_info, scopes=SCOPES)
+    _service = build('drive', 'v3', credentials=creds)
+    return _service
+
+
+def _get_service_via_file(secrets_dict: dict):
+    """
+    Método alternativo: escribe JSON temporal y usa from_service_account_file.
+    """
+    global _service
     tmp_fd, tmp_path = tempfile.mkstemp(suffix='.json', prefix='gcp_sa_')
     try:
         with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
             json.dump(secrets_dict, f)
-        
         creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
         _service = build('drive', 'v3', credentials=creds)
     finally:
-        # Eliminar el archivo temporal
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
-    
     return _service
 
 
-def init_from_secrets(secrets_dict: dict) -> bool:
+def init_from_secrets(secrets_raw) -> tuple:
     """
     Inicializa la conexión a Drive usando los secrets de Streamlit.
+    Intenta 3 métodos progresivos.
     
     Args:
-        secrets_dict: st.secrets["gcp_service_account"] como dict
+        secrets_raw: st.secrets["gcp_service_account"] (AttrDict o dict)
     
     Returns:
-        bool: True si la conexión fue exitosa
+        tuple: (success: bool, debug_info: str)
     """
+    debug_lines = []
+    pk_raw = secrets_raw.get('private_key', '')
+    debug_lines.append("=== DIAGNÓSTICO PRIVATE KEY ===")
+    debug_lines.append(_debug_private_key(str(pk_raw)))
+    debug_lines.append("")
+    
+    # ─── INTENTO 1: Método oficial (pasar st.secrets directamente) ───
+    debug_lines.append("--- Intento 1: Directo (método oficial Streamlit) ---")
     try:
-        # Asegurar que private_key es un string con saltos de línea reales
+        reset_service()
+        service = get_service(secrets_raw)
+        service.files().list(pageSize=1, q=f"'{FOLDER_ID}' in parents").execute()
+        debug_lines.append("✓ Conexión exitosa con método directo!")
+        return True, '\n'.join(debug_lines)
+    except Exception as e1:
+        reset_service()
+        debug_lines.append(f"✗ Falló: {type(e1).__name__}: {e1}")
+    
+    # ─── INTENTO 2: Dict con private_key normalizado ───
+    debug_lines.append("")
+    debug_lines.append("--- Intento 2: Dict + normalización de private_key ---")
+    try:
+        reset_service()
+        # Convertir a dict Python puro
+        secrets_dict = dict(secrets_raw)
+        for k, v in secrets_dict.items():
+            if not isinstance(v, (str, int, float, bool, type(None))):
+                secrets_dict[k] = str(v)
+        # Normalizar private_key
         if 'private_key' in secrets_dict:
-            pk = str(secrets_dict['private_key'])
-            # Reemplazar \n literales (2 caracteres) por saltos reales
-            pk = pk.replace('\\n', '\n')
-            # Limpiar espacios/newlines extra al inicio y final
-            pk = pk.strip()
-            # Asegurar que termina con newline (requerido por PEM)
-            if not pk.endswith('\n'):
-                pk += '\n'
-            secrets_dict['private_key'] = pk
-            
-            # Debug
-            lines = pk.strip().split('\n')
-            print(f"[Drive Debug] private_key: {len(pk)} chars, {len(lines)} lines")
-            print(f"[Drive Debug] Primera línea: {repr(lines[0])}")
-            print(f"[Drive Debug] Última línea: {repr(lines[-1])}")
-            print(f"[Drive Debug] Tipo: {type(secrets_dict['private_key'])}")
-        
-        # Asegurar que todos los valores son tipos Python nativos
-        for key in list(secrets_dict.keys()):
-            val = secrets_dict[key]
-            if not isinstance(val, (str, int, float, bool, list, dict, type(None))):
-                secrets_dict[key] = str(val)
+            secrets_dict['private_key'] = _normalize_private_key(str(secrets_dict['private_key']))
+            debug_lines.append("  Key normalizada:")
+            debug_lines.append('  ' + _debug_private_key(secrets_dict['private_key']).replace('\n', '\n  '))
         
         service = get_service(secrets_dict)
-        # Test rápido
         service.files().list(pageSize=1, q=f"'{FOLDER_ID}' in parents").execute()
-        print("[Drive Debug] Conexión exitosa!")
-        return True
-    except Exception as e:
+        debug_lines.append("✓ Conexión exitosa con dict normalizado!")
+        return True, '\n'.join(debug_lines)
+    except Exception as e2:
         reset_service()
-        print(f"Error conectando a Drive: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        debug_lines.append(f"✗ Falló: {type(e2).__name__}: {e2}")
+    
+    # ─── INTENTO 3: Archivo JSON temporal ───
+    debug_lines.append("")
+    debug_lines.append("--- Intento 3: Archivo JSON temporal ---")
+    try:
+        reset_service()
+        # Reconstruir dict limpio con JSON roundtrip
+        clean_dict = json.loads(json.dumps({k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in dict(secrets_raw).items()}))
+        if 'private_key' in clean_dict:
+            clean_dict['private_key'] = _normalize_private_key(clean_dict['private_key'])
+        
+        service = _get_service_via_file(clean_dict)
+        service.files().list(pageSize=1, q=f"'{FOLDER_ID}' in parents").execute()
+        debug_lines.append("✓ Conexión exitosa con archivo temporal!")
+        return True, '\n'.join(debug_lines)
+    except Exception as e3:
+        reset_service()
+        debug_lines.append(f"✗ Falló: {type(e3).__name__}: {e3}")
+    
+    debug_lines.append("")
+    debug_lines.append("=== TODOS LOS MÉTODOS FALLARON ===")
+    debug_lines.append("Revisa que en Streamlit Cloud secrets tengas:")
+    debug_lines.append('  [gcp_service_account]')
+    debug_lines.append('  private_key = "-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----\\n"')
+    debug_lines.append("Copia el valor EXACTO del campo private_key del JSON de Google.")
+    debug_lines.append("Usa comillas dobles normales \"...\" (NO triples, NO simples).")
+    
+    return False, '\n'.join(debug_lines)
 
 
 def reset_service():
