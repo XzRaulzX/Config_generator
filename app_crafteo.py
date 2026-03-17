@@ -11,8 +11,9 @@ from config_items import (
     PACKS_PREDEFINIDOS, get_job_metadata, get_job_display_name,
 )
 
-# Clave especial para el archivo de categorías en Drive
+# Claves especiales para archivos de metadatos en Drive
 _CATEGORIAS_KEY = 'categorias'
+_PACKS_KEY = 'packs'
 import lua_crafteo_generator as _lcg
 from lua_crafteo_generator import (
     generate_crafting_block, add_crafting_to_config,
@@ -266,41 +267,57 @@ def filter_items(items_dict, search_term):
     return {k: v for k, v in items_dict.items() if s in k.lower() or s in v.lower()}
 
 
-def parse_categorias_file(content):
-    """Parsea el archivo config_categorias.lua → dict {clave: nombre_display}."""
-    cats = {}
+def _parse_lua_table(content):
+    """Parsea una tabla Lua con formato ['key'] = 'value' → dict."""
+    result = {}
     if not content:
-        return cats
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#') or line.startswith('--'):
-            continue
-        if '|' in line:
-            parts = line.split('|', 1)
-            key = parts[0].strip()
-            display = parts[1].strip()
-            if key:
-                cats[key] = display
-    return cats
+        return result
+    for m in re.finditer(r"\['([^']+)'\]\s*=\s*'([^']*)'", content):
+        result[m.group(1)] = m.group(2)
+    return result
 
 
 def serialize_categorias(cats_dict):
-    """Serializa dict de categorías → contenido de archivo."""
-    lines = ['# Categorías de Crafteo — Craftsman\'s Forge', '# Formato: clave|Nombre para mostrar', '']
+    """Serializa dict de categorías → Lua."""
+    max_key_len = max((len(k) for k in cats_dict), default=0)
+    lines = ['Config.CATEGORIAS_CRAFTEO = {']
     for key, display in cats_dict.items():
-        lines.append(f'{key}|{display}')
+        pad = ' ' * (max_key_len - len(key) + 4)
+        lines.append(f"    ['{key}']{pad}= '{display}',")
+    lines.append('}')
+    return '\n'.join(lines) + '\n'
+
+
+def serialize_packs(packs_dict):
+    """Serializa dict de packs → Lua."""
+    max_key_len = max((len(k) for k in packs_dict), default=0)
+    lines = ['Config.PACKS = {']
+    for key, display in packs_dict.items():
+        pad = ' ' * (max_key_len - len(key) + 4)
+        lines.append(f"    ['{key}']{pad}= '{display}',")
+    lines.append('}')
     return '\n'.join(lines) + '\n'
 
 
 def load_categorias():
-    """Carga categorías desde Drive. Si no existe el archivo, lo crea con las predeterminadas."""
+    """Carga categorías desde Drive. Fallback a hardcoded."""
     content = get_config_file_content(_CATEGORIAS_KEY)
     if content:
-        cats = parse_categorias_file(content)
+        cats = _parse_lua_table(content)
         if cats:
             return cats
-    # Fallback: usar hardcoded y crear archivo en Drive
     return dict(CATEGORIAS_CRAFTEO)
+
+
+def load_packs():
+    """Carga packs desde Drive. Fallback a PACKS_PREDEFINIDOS."""
+    content = get_config_file_content(_PACKS_KEY)
+    if content:
+        packs = _parse_lua_table(content)
+        if packs:
+            return packs
+    # Convertir lista legacy a dict (clave = valor)
+    return {p: p.capitalize() for p in PACKS_PREDEFINIDOS if p}
 
 
 def render_apply_button(tab_key):
@@ -366,13 +383,15 @@ if not st.session_state.drive_connected:
 # ============================================================================
 # DATOS DE DRIVE
 # ============================================================================
+_SPECIAL_KEYS = {_CATEGORIAS_KEY, _PACKS_KEY}
 config_keys = list(set(get_available_configs()) | set(st.session_state.get('pending_changes', {}).keys()))
-# Excluir el archivo de categorías de la lista de configs editables
-config_keys = [k for k in config_keys if k != _CATEGORIAS_KEY]
+# Excluir archivos de metadatos de la lista de configs editables
+config_keys = [k for k in config_keys if k not in _SPECIAL_KEYS]
 config_keys.sort()
 
-# Cargar categorías dinámicas desde Drive
+# Cargar categorías y packs dinámicos desde Drive
 categorias_dict = load_categorias()
+packs_dict = load_packs()
 
 pending = st.session_state.get('pending_changes', {})
 n_pending = len(pending)
@@ -410,8 +429,9 @@ if n_pending > 0:
 # ============================================================================
 # TABS PRINCIPALES
 # ============================================================================
-tab_recetas, tab_nueva, tab_config, tab_categorias, tab_editor = st.tabs([
-    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config", "📂 Categorías", "✏️ Editor Lua"
+tab_recetas, tab_nueva, tab_config, tab_categorias, tab_packs, tab_editor = st.tabs([
+    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config",
+    "📂 Categorías", "📦 Packs", "✏️ Editor Lua"
 ])
 
 
@@ -735,27 +755,18 @@ with tab_nueva:
                 animation = st.selectbox("Animación", anim_keys, anim_idx,
                     format_func=lambda x: ANIMACIONES[x], key="anim")
 
-            # Pack: checkbox + selector dinámico
+            # Pack: checkbox + selector dinámico desde Drive
             st.markdown("**Pack (opcional)**")
             is_pack = st.checkbox("📦 Es un Pack", value=bool(d_pack), key="is_pack")
             if is_pack:
-                # Extraer packs existentes del config destino
-                _cfg_content = get_config_file_content(config_destino)
-                _existing_packs = set()
-                if _cfg_content:
-                    for _cb in parse_crafting_blocks(_cfg_content):
-                        _p = _cb.get('pack', '')
-                        if _p:
-                            _existing_packs.add(_p)
-                _existing_packs = sorted(_existing_packs)
-
+                pack_keys = list(packs_dict.keys())
                 pack_mode = st.radio("Tipo de pack", ["Existente", "Nuevo"], horizontal=True, key="pack_mode", label_visibility="collapsed")
-                if pack_mode == "Existente" and _existing_packs:
-                    pack_idx = _existing_packs.index(d_pack) if d_pack in _existing_packs else 0
-                    pack = st.selectbox("Pack existente", _existing_packs, pack_idx,
-                        format_func=lambda x: x.capitalize(), key="pack_sel")
-                elif pack_mode == "Existente" and not _existing_packs:
-                    st.info("No hay packs en este config. Crea uno nuevo.")
+                if pack_mode == "Existente" and pack_keys:
+                    pack_idx = pack_keys.index(d_pack) if d_pack in pack_keys else 0
+                    pack = st.selectbox("Pack existente", pack_keys, pack_idx,
+                        format_func=lambda x: f"{packs_dict.get(x, x)} ({x})", key="pack_sel")
+                elif pack_mode == "Existente" and not pack_keys:
+                    st.info("No hay packs definidos. Crea uno nuevo o añádelo en la pestaña Packs.")
                     pack = st.text_input("Nombre del nuevo pack", value=d_pack, placeholder="Ej: mejicana", key="pack_new")
                 else:
                     pack = st.text_input("Nombre del nuevo pack", value="" if not d_pack else d_pack, placeholder="Ej: mejicana", key="pack_custom")
@@ -1077,7 +1088,81 @@ with tab_categorias:
 
 
 # ============================================================================
-# TAB 5: EDITOR LUA (lectura/escritura directa en Drive)
+# TAB 5: PACKS
+# ============================================================================
+with tab_packs:
+    st.markdown('<div class="card"><div class="card-title">📦 Gestión de Packs</div></div>', unsafe_allow_html=True)
+    st.markdown("Administra los packs disponibles para agrupar recetas. Se guardan en `config_packs.lua` en Drive.")
+
+    # Estado local para edición de packs
+    if 'packs_edit' not in st.session_state:
+        st.session_state.packs_edit = dict(packs_dict)
+
+    packs_edit = st.session_state.packs_edit
+
+    # --- Añadir nuevo pack ---
+    st.markdown("### ➕ Añadir pack")
+    col_pk, col_pd, col_pb = st.columns([2, 3, 1])
+    with col_pk:
+        new_pack_key = st.text_input("Clave *", placeholder="mejicana", key="new_pack_key",
+                                      help="Identificador interno del pack. Ej: mejicana")
+    with col_pd:
+        new_pack_display = st.text_input("Nombre para mostrar *", placeholder="Mejicana", key="new_pack_display",
+                                          help="Nombre legible que se mostrará en la interfaz")
+    with col_pb:
+        st.write(""); st.write("")
+        add_pack_disabled = not (new_pack_key and new_pack_display and new_pack_key.strip())
+        if st.button("➕ Añadir", key="add_pack", use_container_width=True, disabled=add_pack_disabled):
+            pk = new_pack_key.strip()
+            if pk in packs_edit:
+                st.error(f"El pack '{pk}' ya existe.")
+            else:
+                packs_edit[pk] = new_pack_display.strip()
+                st.session_state.packs_edit = packs_edit
+                st.rerun()
+
+    # --- Lista de packs existentes ---
+    st.markdown("### 📋 Packs actuales")
+    if not packs_edit:
+        st.info("No hay packs definidos.")
+    else:
+        for idx, (pack_key, pack_display) in enumerate(list(packs_edit.items())):
+            col_k, col_d, col_del = st.columns([2, 4, 1])
+            with col_k:
+                new_pd = st.text_input("Nombre", value=pack_display, key=f"pack_d_{idx}", label_visibility="collapsed")
+                if new_pd != pack_display:
+                    packs_edit[pack_key] = new_pd
+                    st.session_state.packs_edit = packs_edit
+            with col_d:
+                st.markdown(f"`{pack_key}`")
+            with col_del:
+                if st.button("🗑️", key=f"del_pack_{idx}"):
+                    del packs_edit[pack_key]
+                    st.session_state.packs_edit = packs_edit
+                    st.rerun()
+
+    # --- Botón guardar packs ---
+    st.markdown("---")
+    packs_changed = packs_edit != packs_dict
+    col_save_p, col_reset_p, _ = st.columns([2, 1, 2])
+    with col_save_p:
+        if st.button(
+            "💾 Guardar packs" if packs_changed else "Sin cambios",
+            disabled=not packs_changed, use_container_width=True, type="primary", key="save_packs"
+        ):
+            stage_change(_PACKS_KEY, serialize_packs(packs_edit))
+            st.success("Packs guardados (pendiente de aplicar a Drive)")
+            st.rerun()
+    with col_reset_p:
+        if st.button("↩️ Revertir", disabled=not packs_changed, use_container_width=True, key="reset_packs"):
+            st.session_state.packs_edit = dict(packs_dict)
+            st.rerun()
+
+    render_apply_button("tab_packs")
+
+
+# ============================================================================
+# TAB 6: EDITOR LUA (lectura/escritura directa en Drive)
 # ============================================================================
 with tab_editor:
     st.markdown('<div class="card"><div class="card-title">✏️ Editor de Código Lua (Drive)</div></div>', unsafe_allow_html=True)
