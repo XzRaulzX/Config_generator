@@ -2224,6 +2224,19 @@
       "groupId": 9
     },
     {
+      "item": "bcc_empty_bottle",
+      "label": "Bcc Empty Bottle",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 0
+    },
+    {
       "item": "bcc_repair_hammer",
       "label": "Repair Hammer",
       "limit": 250,
@@ -2235,6 +2248,19 @@
       "weight": 0.25,
       "degradation": 0,
       "groupId": 1
+    },
+    {
+      "item": "bcc_soap_bar",
+      "label": "Bcc Soap Bar",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 0
     },
     {
       "item": "bcigarro",
