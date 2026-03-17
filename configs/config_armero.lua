@@ -1,29 +1,31 @@
-Config.Armero = {{
-    TakeItems = true,
-    CurrencyType = 0,
-    Location = 0,
-    Animation = "craft",
-    Category = "Armero",
-    Text = "Aceite para armas",
-    Desc = "1x Aceite de pescado, 1x Lingote de hierro",
-    Reward = {{
-        name = "cleanshort",
-        count = 1
-    }},
-    Minlvl = 0,
-    UseCurrencyMode = false,
-    Job = 0,
-    Type = "item",
-    Items = {{
-        name = "fishoil",
-        count = 1,
-        take = true
-    }, {
-        name = "iron",
-        count = 1,
-        take = true
-    }}
-}, {
+Config.Armero = {
+-- {
+--     TakeItems = true,
+--     CurrencyType = 0,
+--     Location = 0,
+--     Animation = "craft",
+--     Category = "Armero",
+--     Text = "Aceite para armas",
+--     Desc = "1x Aceite de pescado, 1x Lingote de hierro",
+--     Reward = {{
+--         name = "cleanshort",
+--         count = 1
+--     }},
+--     Minlvl = 0,
+--     UseCurrencyMode = false,
+--     Job = 0,
+--     Type = "item",
+--     Items = {{
+--         name = "fishoil",
+--         count = 1,
+--         take = true
+--     }, {
+--         name = "iron",
+--         count = 1,
+--         take = true
+--     }}
+-- }
+ {
     TakeItems = true,
     CurrencyType = 0,
     Location = 0,
