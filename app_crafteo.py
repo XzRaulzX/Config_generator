@@ -419,379 +419,380 @@ with tab_recetas:
                                 if _drive_available and st.session_state.drive_connected:
                                     drive_manager.clear_cache()
                                 st.rerun()
+                            else:
+                                st.error("Error al reactivar la receta")
 
 
 # ============================================================================
 # TAB 2: NUEVA RECETA
 # ============================================================================
 with tab_nueva:
-    col_form, col_preview = st.columns([1, 1], gap="large")
+    if not config_keys:
+        st.warning("Crea un config primero en la pestaña **Nuevo Config**.")
+    else:
+        col_form, col_preview = st.columns([1, 1], gap="large")
 
-    with col_form:
-        st.markdown('<div class="card"><div class="card-title">📝 Formulario de Receta</div></div>', unsafe_allow_html=True)
+        with col_form:
+            st.markdown('<div class="card"><div class="card-title">📝 Formulario de Receta</div></div>', unsafe_allow_html=True)
 
-        # Config destino
-        config_destino = st.selectbox(
-            "Config destino",
-            options=config_keys if config_keys else ["(sin configs)"],
-            format_func=lambda x: f"config_{x}.lua — {get_job_display_name(x)}" if x != "(sin configs)" else x,
-            key="tab2_config_dest",
-        )
-        if config_destino == "(sin configs)":
-            st.warning("Crea un config primero en la pestaña **Nuevo Config**.")
-            st.stop()
+            # Config destino
+            config_destino = st.selectbox(
+                "Config destino",
+                options=config_keys,
+                format_func=lambda x: f"config_{x}.lua — {get_job_display_name(x)}",
+                key="tab2_config_dest",
+            )
+            job_data = get_job_metadata(config_destino)
 
-        job_data = get_job_metadata(config_destino)
+            # Modo crear / editar
+            modo = st.radio(
+                "Modo",
+                ["crear", "editar"],
+                format_func=lambda x: "✨ Crear nueva" if x == "crear" else "✏️ Editar existente",
+                horizontal=True, key="tab2_modo"
+            )
 
-        # Modo crear / editar
-        modo = st.radio(
-            "Modo",
-            ["crear", "editar"],
-            format_func=lambda x: "✨ Crear nueva" if x == "crear" else "✏️ Editar existente",
-            horizontal=True, key="tab2_modo"
-        )
+            # Defaults
+            d_nombre, d_nivel, d_tipo, d_cat_idx = "", 0, "item", None
+            d_take, d_use_curr, d_curr_type, d_location = True, False, 0, 0
+            d_animation, d_pack = "craft", ""
 
-        # Defaults
-        d_nombre, d_nivel, d_tipo, d_cat_idx = "", 0, "item", None
-        d_take, d_use_curr, d_curr_type, d_location = True, False, 0, 0
-        d_animation, d_pack = "craft", ""
+            if modo == "editar":
+                existing = get_config_file_content(config_destino)
+                if existing:
+                    crafteos_edit = parse_crafting_blocks(existing)
+                    if crafteos_edit:
+                        nombres = [c.get('nombre', '???') for c in crafteos_edit]
+                        sel_idx = st.selectbox("Receta a editar", range(len(nombres)),
+                                               format_func=lambda i: nombres[i], key="edit_sel")
+                        cd = crafteos_edit[sel_idx]
 
-        if modo == "editar":
-            existing = get_config_file_content(config_destino)
-            if existing:
-                crafteos_edit = parse_crafting_blocks(existing)
-                if crafteos_edit:
-                    nombres = [c.get('nombre', '???') for c in crafteos_edit]
-                    sel_idx = st.selectbox("Receta a editar", range(len(nombres)),
-                                           format_func=lambda i: nombres[i], key="edit_sel")
-                    cd = crafteos_edit[sel_idx]
+                        # Detectar cambio de selección
+                        nom_sel = cd.get('nombre', '')
+                        if st.session_state.nombre_original != nom_sel:
+                            st.session_state.nombre_original = nom_sel
+                            st.session_state.crafteo_editando = cd
+                            st.session_state.ingredientes = [
+                                {'name': i.get('name', ''), 'label': ALL_ITEMS.get(i.get('name', ''), i.get('name', '')), 'count': i.get('count', 1)}
+                                for i in cd.get('ingredientes', [])
+                            ]
+                            st.session_state.recompensas = [
+                                {'name': r.get('name', ''), 'label': ALL_ITEMS.get(r.get('name', ''), r.get('name', '')), 'count': r.get('count', 1)}
+                                for r in cd.get('recompensas', [])
+                            ]
+                            st.rerun()
 
-                    # Detectar cambio de selección
-                    nom_sel = cd.get('nombre', '')
-                    if st.session_state.nombre_original != nom_sel:
-                        st.session_state.nombre_original = nom_sel
-                        st.session_state.crafteo_editando = cd
-                        st.session_state.ingredientes = [
-                            {'name': i.get('name', ''), 'label': ALL_ITEMS.get(i.get('name', ''), i.get('name', '')), 'count': i.get('count', 1)}
-                            for i in cd.get('ingredientes', [])
-                        ]
-                        st.session_state.recompensas = [
-                            {'name': r.get('name', ''), 'label': ALL_ITEMS.get(r.get('name', ''), r.get('name', '')), 'count': r.get('count', 1)}
-                            for r in cd.get('recompensas', [])
-                        ]
+                        d_nombre = cd.get('nombre', '')
+                        d_nivel = cd.get('nivel_minimo', 0)
+                        d_tipo = cd.get('tipo', 'item')
+                        d_take = cd.get('take_items', True)
+                        d_use_curr = cd.get('use_currency', False)
+                        d_curr_type = cd.get('currency_type', 0)
+                        d_location = cd.get('location', 0)
+                        d_animation = cd.get('animation', 'craft')
+                        d_pack = cd.get('pack', '')
+                        loaded_cat = cd.get('categoria', '')
+                        cat_keys = list(CATEGORIAS_CRAFTEO.keys())
+                        d_cat_idx = cat_keys.index(loaded_cat) if loaded_cat in cat_keys else None
+
+                        st.info(f"Editando: **{d_nombre}**")
+                    else:
+                        st.warning("No hay recetas en este config para editar.")
+                        modo = "crear"
+                else:
+                    st.warning("No se pudo leer el config.")
+                    modo = "crear"
+
+            if modo == "crear":
+                st.session_state.modo_edicion = False
+                st.session_state.nombre_original = None
+                st.session_state.crafteo_editando = None
+
+            # --- Categoría ---
+            cat_keys = list(CATEGORIAS_CRAFTEO.keys())
+            if d_cat_idx is not None:
+                cat_idx = d_cat_idx
+            else:
+                default_cat = job_data['category']
+                cat_idx = cat_keys.index(default_cat) if default_cat in cat_keys else 0
+
+            categoria = st.selectbox("Categoría del crafteo", cat_keys, index=cat_idx,
+                                      format_func=lambda x: CATEGORIAS_CRAFTEO[x], key="cat_sel")
+
+            # --- Nombre y nivel ---
+            c1, c2 = st.columns([3, 1])
+            nombre = c1.text_input("Nombre *", value=d_nombre, placeholder="Ej: Munición de pistola")
+            nivel = c2.number_input("Nivel mín.", 0, 100, d_nivel)
+
+            # --- Tipo ---
+            tipo_keys = list(TIPOS_CRAFTEO.keys())
+            tipo_idx = tipo_keys.index(d_tipo) if d_tipo in tipo_keys else 0
+            tipo = st.selectbox("Tipo", tipo_keys, tipo_idx, format_func=lambda x: TIPOS_CRAFTEO[x])
+
+            # --- RECOMPENSAS ---
+            st.markdown('<div class="card"><div class="card-title">🎁 Recompensas</div></div>', unsafe_allow_html=True)
+
+            search_rew = st.text_input("🔍 Buscar item de recompensa", placeholder="Filtrar...", key="s_rew")
+            items_f = filter_items(ALL_ITEMS, search_rew)
+            if search_rew:
+                st.caption(f"{len(items_f)} encontrados")
+
+            cr1, cr2, cr3 = st.columns([3, 1, 1])
+            with cr1:
+                use_manual_rew = st.checkbox("ID manual", key="m_rew")
+                if use_manual_rew:
+                    new_rew = st.text_input("ID item", key="mr_id", placeholder="weapon_revolver_cattleman")
+                    new_rew_label = new_rew
+                else:
+                    new_rew = st.selectbox("Item", [""] + list(items_f.keys()),
+                        format_func=lambda x: f"{items_f[x]} ({x})" if x else "-- Seleccionar --", key="sr_sel")
+                    new_rew_label = items_f.get(new_rew, new_rew)
+            cnt_rew = cr2.number_input("Cant.", 1, 999, 1, key="cr_cnt")
+            with cr3:
+                st.write(""); st.write("")
+                if st.button("➕", key="add_rew", use_container_width=True):
+                    if new_rew:
+                        st.session_state.recompensas.append({'name': new_rew, 'label': new_rew_label, 'count': cnt_rew})
                         st.rerun()
 
-                    d_nombre = cd.get('nombre', '')
-                    d_nivel = cd.get('nivel_minimo', 0)
-                    d_tipo = cd.get('tipo', 'item')
-                    d_take = cd.get('take_items', True)
-                    d_use_curr = cd.get('use_currency', False)
-                    d_curr_type = cd.get('currency_type', 0)
-                    d_location = cd.get('location', 0)
-                    d_animation = cd.get('animation', 'craft')
-                    d_pack = cd.get('pack', '')
-                    loaded_cat = cd.get('categoria', '')
-                    cat_keys = list(CATEGORIAS_CRAFTEO.keys())
-                    d_cat_idx = cat_keys.index(loaded_cat) if loaded_cat in cat_keys else None
+            for i, r in enumerate(st.session_state.recompensas):
+                c_a, c_b = st.columns([5, 1])
+                c_a.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {r["label"]}</span> <span class="id">({r["name"]})</span></div><span class="count" style="background:#00d26a">x{r["count"]}</span></div>', unsafe_allow_html=True)
+                if c_b.button("🗑️", key=f"dr_{i}"):
+                    st.session_state.recompensas.pop(i); st.rerun()
 
-                    st.info(f"Editando: **{d_nombre}**")
+            if st.session_state.recompensas:
+                if st.button("🗑️ Limpiar recompensas", key="cl_rew"):
+                    st.session_state.recompensas = []; st.rerun()
+
+            # --- INGREDIENTES ---
+            st.markdown('<div class="card"><div class="card-title">🧪 Ingredientes</div></div>', unsafe_allow_html=True)
+
+            search_ing = st.text_input("🔍 Buscar ingrediente", placeholder="Filtrar...", key="s_ing")
+            ings_f = filter_items(ALL_ITEMS, search_ing)
+            if search_ing:
+                st.caption(f"{len(ings_f)} encontrados")
+
+            ci1, ci2, ci3 = st.columns([3, 1, 1])
+            with ci1:
+                use_manual_ing = st.checkbox("ID manual", key="m_ing")
+                if use_manual_ing:
+                    new_ing = st.text_input("ID ingrediente", key="mi_id", placeholder="gunpowder")
+                    new_ing_label = new_ing
                 else:
-                    st.warning("No hay recetas en este config para editar.")
-                    modo = "crear"
-            else:
-                st.warning("No se pudo leer el config.")
-                modo = "crear"
+                    new_ing = st.selectbox("Ingrediente", [""] + list(ings_f.keys()),
+                        format_func=lambda x: f"{ings_f[x]} ({x})" if x else "-- Seleccionar --", key="si_sel")
+                    new_ing_label = ings_f.get(new_ing, new_ing)
+            cnt_ing = ci2.number_input("Cant.", 1, 999, 1, key="ci_cnt")
+            with ci3:
+                st.write(""); st.write("")
+                if st.button("➕", key="add_ing", use_container_width=True):
+                    if new_ing:
+                        st.session_state.ingredientes.append({'name': new_ing, 'label': new_ing_label, 'count': cnt_ing})
+                        st.rerun()
 
-        if modo == "crear":
-            st.session_state.modo_edicion = False
-            st.session_state.nombre_original = None
-            st.session_state.crafteo_editando = None
+            for i, ing in enumerate(st.session_state.ingredientes):
+                c_a, c_b = st.columns([5, 1])
+                c_a.markdown(f'<div class="item-row"><div><span class="name">📦 {ing["label"]}</span> <span class="id">({ing["name"]})</span></div><span class="count">x{ing["count"]}</span></div>', unsafe_allow_html=True)
+                if c_b.button("🗑️", key=f"di_{i}"):
+                    st.session_state.ingredientes.pop(i); st.rerun()
 
-        # --- Categoría ---
-        cat_keys = list(CATEGORIAS_CRAFTEO.keys())
-        if d_cat_idx is not None:
-            cat_idx = d_cat_idx
-        else:
-            default_cat = job_data['category']
-            cat_idx = cat_keys.index(default_cat) if default_cat in cat_keys else 0
+            if st.session_state.ingredientes:
+                if st.button("🗑️ Limpiar ingredientes", key="cl_ing"):
+                    st.session_state.ingredientes = []; st.rerun()
 
-        categoria = st.selectbox("Categoría del crafteo", cat_keys, index=cat_idx,
-                                  format_func=lambda x: CATEGORIAS_CRAFTEO[x], key="cat_sel")
+            # --- OPCIONES AVANZADAS ---
+            with st.expander("⚙️ Opciones avanzadas"):
+                ca1, ca2 = st.columns(2)
+                with ca1:
+                    take_items = st.checkbox("Consumir ingredientes", d_take, key="take")
+                    use_currency = st.checkbox("Cobrar dinero", d_use_curr, key="ucurr")
+                    if use_currency:
+                        currency_type = st.selectbox("Moneda", [0, 1], d_curr_type,
+                            format_func=lambda x: "💵 Cash" if x == 0 else "🪙 Gold", key="ctype")
+                    else:
+                        currency_type = 0
+                with ca2:
+                    location = st.number_input("Location ID", 0, value=d_location, key="loc")
+                    anim_keys = list(ANIMACIONES.keys())
+                    anim_idx = anim_keys.index(d_animation) if d_animation in anim_keys else 0
+                    animation = st.selectbox("Animación", anim_keys, anim_idx,
+                        format_func=lambda x: ANIMACIONES[x], key="anim")
 
-        # --- Nombre y nivel ---
-        c1, c2 = st.columns([3, 1])
-        nombre = c1.text_input("Nombre *", value=d_nombre, placeholder="Ej: Munición de pistola")
-        nivel = c2.number_input("Nivel mín.", 0, 100, d_nivel)
-
-        # --- Tipo ---
-        tipo_keys = list(TIPOS_CRAFTEO.keys())
-        tipo_idx = tipo_keys.index(d_tipo) if d_tipo in tipo_keys else 0
-        tipo = st.selectbox("Tipo", tipo_keys, tipo_idx, format_func=lambda x: TIPOS_CRAFTEO[x])
-
-        # --- RECOMPENSAS ---
-        st.markdown('<div class="card"><div class="card-title">🎁 Recompensas</div></div>', unsafe_allow_html=True)
-
-        search_rew = st.text_input("🔍 Buscar item de recompensa", placeholder="Filtrar...", key="s_rew")
-        items_f = filter_items(ALL_ITEMS, search_rew)
-        if search_rew:
-            st.caption(f"{len(items_f)} encontrados")
-
-        cr1, cr2, cr3 = st.columns([3, 1, 1])
-        with cr1:
-            use_manual_rew = st.checkbox("ID manual", key="m_rew")
-            if use_manual_rew:
-                new_rew = st.text_input("ID item", key="mr_id", placeholder="weapon_revolver_cattleman")
-                new_rew_label = new_rew
-            else:
-                new_rew = st.selectbox("Item", [""] + list(items_f.keys()),
-                    format_func=lambda x: f"{items_f[x]} ({x})" if x else "-- Seleccionar --", key="sr_sel")
-                new_rew_label = items_f.get(new_rew, new_rew)
-        cnt_rew = cr2.number_input("Cant.", 1, 999, 1, key="cr_cnt")
-        with cr3:
-            st.write(""); st.write("")
-            if st.button("➕", key="add_rew", use_container_width=True):
-                if new_rew:
-                    st.session_state.recompensas.append({'name': new_rew, 'label': new_rew_label, 'count': cnt_rew})
-                    st.rerun()
-
-        for i, r in enumerate(st.session_state.recompensas):
-            c_a, c_b = st.columns([5, 1])
-            c_a.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {r["label"]}</span> <span class="id">({r["name"]})</span></div><span class="count" style="background:#00d26a">x{r["count"]}</span></div>', unsafe_allow_html=True)
-            if c_b.button("🗑️", key=f"dr_{i}"):
-                st.session_state.recompensas.pop(i); st.rerun()
-
-        if st.session_state.recompensas:
-            if st.button("🗑️ Limpiar recompensas", key="cl_rew"):
-                st.session_state.recompensas = []; st.rerun()
-
-        # --- INGREDIENTES ---
-        st.markdown('<div class="card"><div class="card-title">🧪 Ingredientes</div></div>', unsafe_allow_html=True)
-
-        search_ing = st.text_input("🔍 Buscar ingrediente", placeholder="Filtrar...", key="s_ing")
-        ings_f = filter_items(ALL_ITEMS, search_ing)
-        if search_ing:
-            st.caption(f"{len(ings_f)} encontrados")
-
-        ci1, ci2, ci3 = st.columns([3, 1, 1])
-        with ci1:
-            use_manual_ing = st.checkbox("ID manual", key="m_ing")
-            if use_manual_ing:
-                new_ing = st.text_input("ID ingrediente", key="mi_id", placeholder="gunpowder")
-                new_ing_label = new_ing
-            else:
-                new_ing = st.selectbox("Ingrediente", [""] + list(ings_f.keys()),
-                    format_func=lambda x: f"{ings_f[x]} ({x})" if x else "-- Seleccionar --", key="si_sel")
-                new_ing_label = ings_f.get(new_ing, new_ing)
-        cnt_ing = ci2.number_input("Cant.", 1, 999, 1, key="ci_cnt")
-        with ci3:
-            st.write(""); st.write("")
-            if st.button("➕", key="add_ing", use_container_width=True):
-                if new_ing:
-                    st.session_state.ingredientes.append({'name': new_ing, 'label': new_ing_label, 'count': cnt_ing})
-                    st.rerun()
-
-        for i, ing in enumerate(st.session_state.ingredientes):
-            c_a, c_b = st.columns([5, 1])
-            c_a.markdown(f'<div class="item-row"><div><span class="name">📦 {ing["label"]}</span> <span class="id">({ing["name"]})</span></div><span class="count">x{ing["count"]}</span></div>', unsafe_allow_html=True)
-            if c_b.button("🗑️", key=f"di_{i}"):
-                st.session_state.ingredientes.pop(i); st.rerun()
-
-        if st.session_state.ingredientes:
-            if st.button("🗑️ Limpiar ingredientes", key="cl_ing"):
-                st.session_state.ingredientes = []; st.rerun()
-
-        # --- OPCIONES AVANZADAS ---
-        with st.expander("⚙️ Opciones avanzadas"):
-            ca1, ca2 = st.columns(2)
-            with ca1:
-                take_items = st.checkbox("Consumir ingredientes", d_take, key="take")
-                use_currency = st.checkbox("Cobrar dinero", d_use_curr, key="ucurr")
-                if use_currency:
-                    currency_type = st.selectbox("Moneda", [0, 1], d_curr_type,
-                        format_func=lambda x: "💵 Cash" if x == 0 else "🪙 Gold", key="ctype")
+                # Pack: predefinido o custom
+                st.markdown("**Pack (opcional)**")
+                pack_mode = st.radio("", ["Predefinido", "Personalizado"], horizontal=True, key="pack_mode", label_visibility="collapsed")
+                if pack_mode == "Predefinido":
+                    pack_idx = PACKS_PREDEFINIDOS.index(d_pack) if d_pack in PACKS_PREDEFINIDOS else 0
+                    pack = st.selectbox("Pack", PACKS_PREDEFINIDOS, pack_idx,
+                        format_func=lambda x: "-- Sin pack --" if x == "" else x.capitalize(), key="pack_sel")
                 else:
-                    currency_type = 0
-            with ca2:
-                location = st.number_input("Location ID", 0, value=d_location, key="loc")
-                anim_keys = list(ANIMACIONES.keys())
-                anim_idx = anim_keys.index(d_animation) if d_animation in anim_keys else 0
-                animation = st.selectbox("Animación", anim_keys, anim_idx,
-                    format_func=lambda x: ANIMACIONES[x], key="anim")
+                    pack = st.text_input("Nombre del pack", value=d_pack, placeholder="Ej: nomada", key="pack_custom")
 
-            # Pack: predefinido o custom
-            st.markdown("**Pack (opcional)**")
-            pack_mode = st.radio("", ["Predefinido", "Personalizado"], horizontal=True, key="pack_mode", label_visibility="collapsed")
-            if pack_mode == "Predefinido":
-                pack_idx = PACKS_PREDEFINIDOS.index(d_pack) if d_pack in PACKS_PREDEFINIDOS else 0
-                pack = st.selectbox("Pack", PACKS_PREDEFINIDOS, pack_idx,
-                    format_func=lambda x: "-- Sin pack --" if x == "" else x.capitalize(), key="pack_sel")
+                # Job override
+                st.markdown("**Job (valor para filtro de trabajo)**")
+                job_override = st.text_input("Job value", value=str(job_data['job_value']),
+                    help='0 = cualquiera. Para jobs específicos: {"medicoAR", "medicoBW"}', key="job_ov")
+                if job_override.strip().startswith('{'):
+                    job_final = job_override.strip()
+                else:
+                    try:
+                        job_final = int(job_override)
+                    except ValueError:
+                        job_final = 0
+
+        # --- PREVIEW Y GUARDADO ---
+        with col_preview:
+            st.markdown('<div class="card"><div class="card-title">📤 Preview y Guardado</div></div>', unsafe_allow_html=True)
+
+            errores = []
+            if not nombre: errores.append("Nombre del crafteo")
+            if not st.session_state.recompensas: errores.append("Al menos una recompensa")
+            if not st.session_state.ingredientes: errores.append("Al menos un ingrediente")
+
+            if errores:
+                st.warning("**Campos requeridos:**")
+                for e in errores:
+                    st.markdown(f"- {e}")
             else:
-                pack = st.text_input("Nombre del pack", value=d_pack, placeholder="Ej: nomada", key="pack_custom")
+                # Generar descripción automática
+                desc = ", ".join(f"{i['count']}x {i['label']}" for i in st.session_state.ingredientes)
 
-            # Job override
-            st.markdown("**Job (valor para filtro de trabajo)**")
-            job_override = st.text_input("Job value", value=str(job_data['job_value']),
-                help='0 = cualquiera. Para jobs específicos: {"medicoAR", "medicoBW"}', key="job_ov")
-            if job_override.strip().startswith('{'):
-                job_final = job_override.strip()
-            else:
-                try:
-                    job_final = int(job_override)
-                except ValueError:
-                    job_final = 0
+                datos = {
+                    'nombre': nombre, 'descripcion': desc, 'categoria': categoria,
+                    'tipo': tipo, 'nivel_minimo': nivel, 'recompensas': st.session_state.recompensas,
+                    'ingredientes': st.session_state.ingredientes, 'take_items': take_items,
+                    'currency_type': currency_type, 'location': location, 'animation': animation,
+                    'use_currency': use_currency, 'job': job_final, 'pack': pack,
+                }
+                codigo_lua = generate_crafting_block(datos)
 
-    # --- PREVIEW Y GUARDADO ---
-    with col_preview:
-        st.markdown('<div class="card"><div class="card-title">📤 Preview y Guardado</div></div>', unsafe_allow_html=True)
+                # Validar sintaxis
+                syntax_errors = validate_lua_syntax(codigo_lua)
+                if syntax_errors:
+                    st.error("⚠️ Errores de sintaxis Lua detectados:")
+                    for se in syntax_errors:
+                        st.markdown(f"- {se}")
 
-        errores = []
-        if not nombre: errores.append("Nombre del crafteo")
-        if not st.session_state.recompensas: errores.append("Al menos una recompensa")
-        if not st.session_state.ingredientes: errores.append("Al menos un ingrediente")
+                # Resumen
+                st.markdown(f"""
+                <div class="card">
+                    <div class="card-title">✅ Resumen</div>
+                    <table style="width:100%;color:#d4c5a9;font-family:'IM Fell English',serif">
+                        <tr><td>Config destino</td><td style="text-align:right"><b>config_{config_destino}.lua</b></td></tr>
+                        <tr><td>Nombre</td><td style="text-align:right"><b>{nombre}</b></td></tr>
+                        <tr><td>Categoría</td><td style="text-align:right">{categoria}</td></tr>
+                        <tr><td>Recompensas</td><td style="text-align:right">{len(st.session_state.recompensas)} items</td></tr>
+                        <tr><td>Ingredientes</td><td style="text-align:right">{len(st.session_state.ingredientes)} items</td></tr>
+                        <tr><td>Nivel mínimo</td><td style="text-align:right">{nivel}</td></tr>
+                        <tr><td>Pack</td><td style="text-align:right">{pack or '—'}</td></tr>
+                    </table>
+                </div>
+                """, unsafe_allow_html=True)
 
-        if errores:
-            st.warning("**Campos requeridos:**")
-            for e in errores:
-                st.markdown(f"- {e}")
-        else:
-            # Generar descripción automática
-            desc = ", ".join(f"{i['count']}x {i['label']}" for i in st.session_state.ingredientes)
+                # Código
+                with st.expander("💻 Código Lua generado", expanded=True):
+                    st.code(codigo_lua, language="lua")
 
-            datos = {
-                'nombre': nombre, 'descripcion': desc, 'categoria': categoria,
-                'tipo': tipo, 'nivel_minimo': nivel, 'recompensas': st.session_state.recompensas,
-                'ingredientes': st.session_state.ingredientes, 'take_items': take_items,
-                'currency_type': currency_type, 'location': location, 'animation': animation,
-                'use_currency': use_currency, 'job': job_final, 'pack': pack,
-            }
-            codigo_lua = generate_crafting_block(datos)
+                st.download_button("📥 Descargar bloque", codigo_lua,
+                    f"crafteo_{config_destino}_{nombre.lower().replace(' ', '_')}.lua", "text/plain",
+                    use_container_width=True, key="dl_block")
 
-            # Validar sintaxis
-            syntax_errors = validate_lua_syntax(codigo_lua)
-            if syntax_errors:
-                st.error("⚠️ Errores de sintaxis Lua detectados:")
-                for se in syntax_errors:
-                    st.markdown(f"- {se}")
+                st.markdown("---")
 
-            # Resumen
-            st.markdown(f"""
-            <div class="card">
-                <div class="card-title">✅ Resumen</div>
-                <table style="width:100%;color:#d4c5a9;font-family:'IM Fell English',serif">
-                    <tr><td>Config destino</td><td style="text-align:right"><b>config_{config_destino}.lua</b></td></tr>
-                    <tr><td>Nombre</td><td style="text-align:right"><b>{nombre}</b></td></tr>
-                    <tr><td>Categoría</td><td style="text-align:right">{categoria}</td></tr>
-                    <tr><td>Recompensas</td><td style="text-align:right">{len(st.session_state.recompensas)} items</td></tr>
-                    <tr><td>Ingredientes</td><td style="text-align:right">{len(st.session_state.ingredientes)} items</td></tr>
-                    <tr><td>Nivel mínimo</td><td style="text-align:right">{nivel}</td></tr>
-                    <tr><td>Pack</td><td style="text-align:right">{pack or '—'}</td></tr>
-                </table>
-            </div>
-            """, unsafe_allow_html=True)
+                # === MODO EDICIÓN: guardar cambios ===
+                if modo == "editar" and st.session_state.nombre_original:
+                    st.markdown(f"**Editando:** {st.session_state.nombre_original} → {nombre}")
 
-            # Código
-            with st.expander("💻 Código Lua generado", expanded=True):
-                st.code(codigo_lua, language="lua")
+                    config_editado = replace_crafting_in_config(config_destino, st.session_state.nombre_original, codigo_lua)
+                    if config_editado:
+                        # Validar config completo
+                        full_errors = validate_full_config(config_editado)
+                        if full_errors:
+                            st.warning("Advertencias en el config resultante:")
+                            for fe in full_errors:
+                                st.caption(f"⚠️ {fe}")
 
-            st.download_button("📥 Descargar bloque", codigo_lua,
-                f"crafteo_{config_destino}_{nombre.lower().replace(' ', '_')}.lua", "text/plain",
-                use_container_width=True, key="dl_block")
+                        if st.button("☁️ Guardar cambios" if st.session_state.drive_connected else "💾 Guardar cambios",
+                                     use_container_width=True, type="primary", key="save_edit"):
+                            if save_config_file(config_destino, config_editado):
+                                st.success("Cambios guardados correctamente")
+                                if _drive_available and st.session_state.drive_connected:
+                                    drive_manager.clear_cache()
+                                st.session_state.ingredientes = []
+                                st.session_state.recompensas = []
+                                st.session_state.nombre_original = None
+                                st.rerun()
+                            else:
+                                st.error("Error al guardar")
 
-            st.markdown("---")
+                        with st.expander("Preview config editado"):
+                            st.code(config_editado, language="lua")
+                    else:
+                        st.error("No se encontró el crafteo original para reemplazar")
 
-            # === MODO EDICIÓN: guardar cambios ===
-            if modo == "editar" and st.session_state.nombre_original:
-                st.markdown(f"**Editando:** {st.session_state.nombre_original} → {nombre}")
-
-                config_editado = replace_crafting_in_config(config_destino, st.session_state.nombre_original, codigo_lua)
-                if config_editado:
-                    # Validar config completo
-                    full_errors = validate_full_config(config_editado)
-                    if full_errors:
-                        st.warning("Advertencias en el config resultante:")
-                        for fe in full_errors:
-                            st.caption(f"⚠️ {fe}")
-
-                    if st.button("☁️ Guardar cambios" if st.session_state.drive_connected else "💾 Guardar cambios",
-                                 use_container_width=True, type="primary", key="save_edit"):
-                        if save_config_file(config_destino, config_editado):
-                            st.success("Cambios guardados correctamente")
+                    # Opción desactivar
+                    st.markdown("---")
+                    if st.button("🚫 Desactivar este crafteo", key="disable_edit", use_container_width=True):
+                        config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
+                        if config_dis and save_config_file(config_destino, config_dis):
+                            st.success(f"'{st.session_state.nombre_original}' desactivado")
                             if _drive_available and st.session_state.drive_connected:
                                 drive_manager.clear_cache()
                             st.session_state.ingredientes = []
                             st.session_state.recompensas = []
                             st.session_state.nombre_original = None
                             st.rerun()
-                        else:
-                            st.error("Error al guardar")
 
-                    with st.expander("Preview config editado"):
-                        st.code(config_editado, language="lua")
+                # === MODO CREACIÓN: añadir nuevo ===
                 else:
-                    st.error("No se encontró el crafteo original para reemplazar")
+                    existing = get_config_file_content(config_destino)
+                    if existing:
+                        config_completo = add_crafting_to_config(config_destino, codigo_lua)
+                        n_existentes = len(parse_crafting_blocks(existing))
 
-                # Opción desactivar
-                st.markdown("---")
-                if st.button("🚫 Desactivar este crafteo", key="disable_edit", use_container_width=True):
-                    config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
-                    if config_dis and save_config_file(config_destino, config_dis):
-                        st.success(f"'{st.session_state.nombre_original}' desactivado")
-                        if _drive_available and st.session_state.drive_connected:
-                            drive_manager.clear_cache()
-                        st.session_state.ingredientes = []
-                        st.session_state.recompensas = []
-                        st.session_state.nombre_original = None
-                        st.rerun()
+                        # Validar config completo
+                        full_errors = validate_full_config(config_completo)
+                        if full_errors:
+                            st.warning("Advertencias en el config resultante:")
+                            for fe in full_errors:
+                                st.caption(f"⚠️ {fe}")
 
-            # === MODO CREACIÓN: añadir nuevo ===
-            else:
-                existing = get_config_file_content(config_destino)
-                if existing:
-                    config_completo = add_crafting_to_config(config_destino, codigo_lua)
-                    n_existentes = len(parse_crafting_blocks(existing))
+                        st.success(f"Config tiene {n_existentes} recetas. Se añadirá una nueva.")
 
-                    # Validar config completo
-                    full_errors = validate_full_config(config_completo)
-                    if full_errors:
-                        st.warning("Advertencias en el config resultante:")
-                        for fe in full_errors:
-                            st.caption(f"⚠️ {fe}")
+                        if st.button(
+                            f"☁️ Guardar en config_{config_destino}.lua" if st.session_state.drive_connected else f"💾 Guardar en config_{config_destino}.lua",
+                            use_container_width=True, type="primary", key="save_new"
+                        ):
+                            if save_config_file(config_destino, config_completo):
+                                st.success("Receta añadida y guardada correctamente")
+                                if _drive_available and st.session_state.drive_connected:
+                                    drive_manager.clear_cache()
+                                st.session_state.ingredientes = []
+                                st.session_state.recompensas = []
+                                st.rerun()
+                            else:
+                                st.error("Error al guardar")
 
-                    st.success(f"Config tiene {n_existentes} recetas. Se añadirá una nueva.")
-
-                    if st.button(
-                        f"☁️ Guardar en config_{config_destino}.lua" if st.session_state.drive_connected else f"💾 Guardar en config_{config_destino}.lua",
-                        use_container_width=True, type="primary", key="save_new"
-                    ):
-                        if save_config_file(config_destino, config_completo):
-                            st.success("Receta añadida y guardada correctamente")
-                            if _drive_available and st.session_state.drive_connected:
-                                drive_manager.clear_cache()
-                            st.session_state.ingredientes = []
-                            st.session_state.recompensas = []
-                            st.rerun()
-                        else:
-                            st.error("Error al guardar")
-
-                    with st.expander("Preview config completo"):
-                        st.code(config_completo, language="lua")
-                else:
-                    st.info(f"No existe config_{config_destino}.lua. Se creará uno nuevo.")
-                    config_name = get_config_name(config_destino)
-                    nuevo_config = (
-                        f"Config.{config_name} = {{{codigo_lua}\n}}\n\n"
-                        f"-- Agregamos a la configuración general los items de {config_destino}\n"
-                        f"for _, item in pairs(Config.{config_name}) do\n"
-                        f"    table.insert(Config.Crafting, item)\n"
-                        f"end\n"
-                    )
-                    if st.button("☁️ Crear config" if st.session_state.drive_connected else "💾 Crear config",
-                                 use_container_width=True, type="primary", key="create_new"):
-                        if save_config_file(config_destino, nuevo_config):
-                            st.success("Config creado correctamente")
-                            if _drive_available and st.session_state.drive_connected:
-                                drive_manager.clear_cache()
-                            st.rerun()
+                        with st.expander("Preview config completo"):
+                            st.code(config_completo, language="lua")
+                    else:
+                        st.info(f"No existe config_{config_destino}.lua. Se creará uno nuevo.")
+                        config_name = get_config_name(config_destino)
+                        nuevo_config = (
+                            f"Config.{config_name} = {{{codigo_lua}\n}}\n\n"
+                            f"-- Agregamos a la configuración general los items de {config_destino}\n"
+                            f"for _, item in pairs(Config.{config_name}) do\n"
+                            f"    table.insert(Config.Crafting, item)\n"
+                            f"end\n"
+                        )
+                        if st.button("☁️ Crear config" if st.session_state.drive_connected else "💾 Crear config",
+                                     use_container_width=True, type="primary", key="create_new"):
+                            if save_config_file(config_destino, nuevo_config):
+                                st.success("Config creado correctamente")
+                                if _drive_available and st.session_state.drive_connected:
+                                    drive_manager.clear_cache()
+                                st.rerun()
 
 
 # ============================================================================
