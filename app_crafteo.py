@@ -212,12 +212,28 @@ st.markdown("""
 _original_get_content = _lcg.get_config_file_content
 
 
+def invalidate_drive_cache():
+    """Invalida la caché local para forzar recarga desde Drive."""
+    st.session_state.pop('_drive_cache', None)
+    st.session_state.pop('_cached_config_keys', None)
+    st.session_state.pop('_cached_categorias', None)
+    st.session_state.pop('_cached_packs', None)
+    if _drive_available:
+        drive_manager.clear_cache()
+
+
 def get_config_file_content(job_key):
-    """Lee contenido: primero busca en cambios pendientes, luego en Drive."""
+    """Lee contenido: primero pending, luego caché local, luego Drive."""
     pending = st.session_state.get('pending_changes', {})
     if job_key in pending:
         return pending[job_key]
-    return _original_get_content(job_key)
+    # Caché local en session_state
+    if '_drive_cache' not in st.session_state:
+        st.session_state._drive_cache = {}
+    cache = st.session_state._drive_cache
+    if job_key not in cache:
+        cache[job_key] = _original_get_content(job_key)
+    return cache[job_key]
 
 
 # Monkey-patch para que funciones internas (comment, delete, etc.) usen pending
@@ -245,13 +261,13 @@ def apply_all_changes():
             errors.append(f"{key} ({type(e).__name__}: {e})")
     if not errors:
         st.session_state.pending_changes = {}
-        drive_manager.clear_cache()
+        invalidate_drive_cache()
         return True, []
     # Eliminar los que sí se guardaron
     for key in list(pending.keys()):
         if not any(key in err for err in errors):
             del st.session_state.pending_changes[key]
-    drive_manager.clear_cache()
+    invalidate_drive_cache()
     return False, errors
 
 
@@ -381,17 +397,26 @@ if not st.session_state.drive_connected:
     st.stop()
 
 # ============================================================================
-# DATOS DE DRIVE
+# DATOS (cacheados en session_state, solo recargan con Refrescar/Aplicar)
 # ============================================================================
 _SPECIAL_KEYS = {_CATEGORIAS_KEY, _PACKS_KEY}
-config_keys = list(set(get_available_configs()) | set(st.session_state.get('pending_changes', {}).keys()))
-# Excluir archivos de metadatos de la lista de configs editables
-config_keys = [k for k in config_keys if k not in _SPECIAL_KEYS]
-config_keys.sort()
 
-# Cargar categorías y packs dinámicos desde Drive
-categorias_dict = load_categorias()
-packs_dict = load_packs()
+if '_cached_config_keys' not in st.session_state:
+    _raw_keys = get_available_configs()
+    st.session_state._cached_config_keys = [k for k in _raw_keys if k not in _SPECIAL_KEYS]
+
+config_keys = sorted(
+    set(st.session_state._cached_config_keys)
+    | {k for k in st.session_state.get('pending_changes', {}) if k not in _SPECIAL_KEYS}
+)
+
+if '_cached_categorias' not in st.session_state:
+    st.session_state._cached_categorias = load_categorias()
+categorias_dict = st.session_state._cached_categorias
+
+if '_cached_packs' not in st.session_state:
+    st.session_state._cached_packs = load_packs()
+packs_dict = st.session_state._cached_packs
 
 pending = st.session_state.get('pending_changes', {})
 n_pending = len(pending)
@@ -407,7 +432,7 @@ with col_info2:
     st.info(f"📦 {len(ALL_ITEMS):,} items disponibles")
 with col_info3:
     if st.button("🔄 Refrescar Drive", key="refresh_configs", use_container_width=True):
-        drive_manager.clear_cache()
+        invalidate_drive_cache()
         st.rerun()
 if n_pending > 0:
     with col_info4:
@@ -990,6 +1015,7 @@ with tab_config:
 
             if new_category and new_category not in categorias_dict:
                 categorias_dict[new_category] = f"📄 {new_display or new_category}"
+                st.session_state._cached_categorias = categorias_dict
                 stage_change(_CATEGORIAS_KEY, serialize_categorias(categorias_dict))
 
             if new_key not in BASE_JOBS:
@@ -1077,6 +1103,7 @@ with tab_categorias:
             disabled=not cats_changed, use_container_width=True, type="primary", key="save_cats"
         ):
             stage_change(_CATEGORIAS_KEY, serialize_categorias(cats_edit))
+            st.session_state._cached_categorias = dict(cats_edit)
             st.success("Categorías guardadas (pendiente de aplicar a Drive)")
             st.rerun()
     with col_reset:
@@ -1151,6 +1178,7 @@ with tab_packs:
             disabled=not packs_changed, use_container_width=True, type="primary", key="save_packs"
         ):
             stage_change(_PACKS_KEY, serialize_packs(packs_edit))
+            st.session_state._cached_packs = dict(packs_edit)
             st.success("Packs guardados (pendiente de aplicar a Drive)")
             st.rerun()
     with col_reset_p:
