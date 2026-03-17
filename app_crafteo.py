@@ -263,6 +263,29 @@ def filter_items(items_dict, search_term):
     return {k: v for k, v in items_dict.items() if s in k.lower() or s in v.lower()}
 
 
+def render_apply_button(tab_key):
+    """Renderiza el botón de aplicar cambios a Drive dentro de una pestaña."""
+    pending = st.session_state.get('pending_changes', {})
+    n = len(pending)
+    if n > 0:
+        st.markdown("---")
+        st.warning(f"⚠️ Tienes **{n}** cambio(s) pendiente(s): {', '.join(f'config_{k}.lua' for k in pending.keys())}")
+        col_apply, col_disc, _ = st.columns([2, 1, 2])
+        with col_apply:
+            if st.button(f"☁️ Aplicar {n} cambio(s) a Drive", key=f"apply_{tab_key}", use_container_width=True, type="primary"):
+                ok, errs = apply_all_changes()
+                if ok:
+                    st.toast("✅ Cambios aplicados a Drive")
+                    st.rerun()
+                else:
+                    for err in errs:
+                        st.error(f"Error: {err}")
+        with col_disc:
+            if st.button("🗑️ Descartar", key=f"discard_{tab_key}", use_container_width=True):
+                discard_all_changes()
+                st.rerun()
+
+
 # ============================================================================
 # SESSION STATE
 # ============================================================================
@@ -467,6 +490,8 @@ with tab_recetas:
                                 st.rerun()
                             else:
                                 st.error("Error al reactivar la receta")
+
+    render_apply_button("tab_recetas")
 
 
 # ============================================================================
@@ -829,6 +854,8 @@ with tab_nueva:
                             st.success("Config creado (pendiente de aplicar)")
                             st.rerun()
 
+    render_apply_button("tab_nueva")
+
 
 # ============================================================================
 # TAB 3: CREAR NUEVO CONFIG (JOB)
@@ -909,6 +936,8 @@ with tab_config:
             st.success(f"✅ config_{new_key}.lua creado (pendiente de aplicar)")
             st.rerun()
 
+    render_apply_button("tab_config")
+
 
 # ============================================================================
 # TAB 4: EDITOR LUA (lectura/escritura directa en Drive)
@@ -957,6 +986,8 @@ with tab_editor:
                     "text/plain", use_container_width=True, key=f"dl_ed_{ed_config}")
         else:
             st.error(f"No se pudo leer config_{ed_config}.lua desde Drive")
+
+    render_apply_button("tab_editor")
 
 
 # ============================================================================
