@@ -10,6 +10,9 @@ from config_items import (
     ALL_ITEMS, BASE_JOBS, ANIMACIONES, CATEGORIAS_CRAFTEO, TIPOS_CRAFTEO,
     PACKS_PREDEFINIDOS, get_job_metadata, get_job_display_name,
 )
+
+# Clave especial para el archivo de categorías en Drive
+_CATEGORIAS_KEY = 'categorias'
 import lua_crafteo_generator as _lcg
 from lua_crafteo_generator import (
     generate_crafting_block, add_crafting_to_config,
@@ -263,6 +266,43 @@ def filter_items(items_dict, search_term):
     return {k: v for k, v in items_dict.items() if s in k.lower() or s in v.lower()}
 
 
+def parse_categorias_file(content):
+    """Parsea el archivo config_categorias.lua → dict {clave: nombre_display}."""
+    cats = {}
+    if not content:
+        return cats
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or line.startswith('--'):
+            continue
+        if '|' in line:
+            parts = line.split('|', 1)
+            key = parts[0].strip()
+            display = parts[1].strip()
+            if key:
+                cats[key] = display
+    return cats
+
+
+def serialize_categorias(cats_dict):
+    """Serializa dict de categorías → contenido de archivo."""
+    lines = ['# Categorías de Crafteo — Craftsman\'s Forge', '# Formato: clave|Nombre para mostrar', '']
+    for key, display in cats_dict.items():
+        lines.append(f'{key}|{display}')
+    return '\n'.join(lines) + '\n'
+
+
+def load_categorias():
+    """Carga categorías desde Drive. Si no existe el archivo, lo crea con las predeterminadas."""
+    content = get_config_file_content(_CATEGORIAS_KEY)
+    if content:
+        cats = parse_categorias_file(content)
+        if cats:
+            return cats
+    # Fallback: usar hardcoded y crear archivo en Drive
+    return dict(CATEGORIAS_CRAFTEO)
+
+
 def render_apply_button(tab_key):
     """Renderiza el botón de aplicar cambios a Drive dentro de una pestaña."""
     pending = st.session_state.get('pending_changes', {})
@@ -327,7 +367,12 @@ if not st.session_state.drive_connected:
 # DATOS DE DRIVE
 # ============================================================================
 config_keys = list(set(get_available_configs()) | set(st.session_state.get('pending_changes', {}).keys()))
+# Excluir el archivo de categorías de la lista de configs editables
+config_keys = [k for k in config_keys if k != _CATEGORIAS_KEY]
 config_keys.sort()
+
+# Cargar categorías dinámicas desde Drive
+categorias_dict = load_categorias()
 
 pending = st.session_state.get('pending_changes', {})
 n_pending = len(pending)
@@ -365,8 +410,8 @@ if n_pending > 0:
 # ============================================================================
 # TABS PRINCIPALES
 # ============================================================================
-tab_recetas, tab_nueva, tab_config, tab_editor = st.tabs([
-    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config", "✏️ Editor Lua"
+tab_recetas, tab_nueva, tab_config, tab_categorias, tab_editor = st.tabs([
+    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config", "📂 Categorías", "✏️ Editor Lua"
 ])
 
 
@@ -563,7 +608,7 @@ with tab_nueva:
                     d_animation = cd.get('animation', 'craft')
                     d_pack = cd.get('pack', '')
                     loaded_cat = cd.get('categoria', '')
-                    cat_keys = list(CATEGORIAS_CRAFTEO.keys())
+                    cat_keys = list(categorias_dict.keys())
                     d_cat_idx = cat_keys.index(loaded_cat) if loaded_cat in cat_keys else None
 
                     st.info(f"Editando: **{d_nombre}**")
@@ -580,7 +625,7 @@ with tab_nueva:
             st.session_state.crafteo_editando = None
 
         # --- Categoría ---
-        cat_keys = list(CATEGORIAS_CRAFTEO.keys())
+        cat_keys = list(categorias_dict.keys())
         if d_cat_idx is not None:
             cat_idx = d_cat_idx
         else:
@@ -588,7 +633,7 @@ with tab_nueva:
             cat_idx = cat_keys.index(default_cat) if default_cat in cat_keys else 0
 
         categoria = st.selectbox("Categoría del crafteo", cat_keys, index=cat_idx,
-                                  format_func=lambda x: CATEGORIAS_CRAFTEO[x], key="cat_sel")
+                                  format_func=lambda x: categorias_dict.get(x, x), key="cat_sel")
 
         # --- Nombre y nivel ---
         c1, c2 = st.columns([3, 1])
@@ -932,8 +977,9 @@ with tab_config:
             register_config_name(new_key, new_config_name)
             stage_change(new_key, preview_content)
 
-            if new_category and new_category not in CATEGORIAS_CRAFTEO:
-                CATEGORIAS_CRAFTEO[new_category] = f"📄 {new_display or new_category}"
+            if new_category and new_category not in categorias_dict:
+                categorias_dict[new_category] = f"📄 {new_display or new_category}"
+                stage_change(_CATEGORIAS_KEY, serialize_categorias(categorias_dict))
 
             if new_key not in BASE_JOBS:
                 jv = new_job_value.strip()
@@ -957,7 +1003,81 @@ with tab_config:
 
 
 # ============================================================================
-# TAB 4: EDITOR LUA (lectura/escritura directa en Drive)
+# TAB 4: CATEGORÍAS
+# ============================================================================
+with tab_categorias:
+    st.markdown('<div class="card"><div class="card-title">📂 Gestión de Categorías</div></div>', unsafe_allow_html=True)
+    st.markdown("Administra las categorías disponibles para las recetas de crafteo. Se guardan en `config_categorias.lua` en Drive.")
+
+    # Estado local para edición de categorías
+    if 'cats_edit' not in st.session_state:
+        st.session_state.cats_edit = dict(categorias_dict)
+
+    cats_edit = st.session_state.cats_edit
+
+    # --- Añadir nueva categoría ---
+    st.markdown("### ➕ Añadir categoría")
+    col_nk, col_nd, col_nb = st.columns([2, 3, 1])
+    with col_nk:
+        new_cat_key = st.text_input("Clave *", placeholder="CocinaPremium", key="new_cat_key",
+                                     help="Identificador interno (sin espacios). Ej: CocinaPremium")
+    with col_nd:
+        new_cat_display = st.text_input("Nombre para mostrar *", placeholder="👨‍🍳 Cocina Premium", key="new_cat_display",
+                                         help="Nombre con emoji que se mostrará en la interfaz")
+    with col_nb:
+        st.write(""); st.write("")
+        add_disabled = not (new_cat_key and new_cat_display and new_cat_key.strip())
+        if st.button("➕ Añadir", key="add_cat", use_container_width=True, disabled=add_disabled):
+            k = new_cat_key.strip()
+            if k in cats_edit:
+                st.error(f"La clave '{k}' ya existe.")
+            else:
+                cats_edit[k] = new_cat_display.strip()
+                st.session_state.cats_edit = cats_edit
+                st.rerun()
+
+    # --- Lista de categorías existentes ---
+    st.markdown("### 📋 Categorías actuales")
+    if not cats_edit:
+        st.info("No hay categorías definidas.")
+    else:
+        for idx, (cat_key, cat_display) in enumerate(list(cats_edit.items())):
+            col_k, col_d, col_del = st.columns([2, 4, 1])
+            with col_k:
+                new_display = st.text_input("Nombre", value=cat_display, key=f"cat_d_{idx}", label_visibility="collapsed")
+                if new_display != cat_display:
+                    cats_edit[cat_key] = new_display
+                    st.session_state.cats_edit = cats_edit
+            with col_d:
+                st.markdown(f"`{cat_key}`")
+            with col_del:
+                if st.button("🗑️", key=f"del_cat_{idx}"):
+                    del cats_edit[cat_key]
+                    st.session_state.cats_edit = cats_edit
+                    st.rerun()
+
+    # --- Botón guardar categorías ---
+    st.markdown("---")
+    cats_changed = cats_edit != categorias_dict
+    col_save, col_reset, _ = st.columns([2, 1, 2])
+    with col_save:
+        if st.button(
+            "💾 Guardar categorías" if cats_changed else "Sin cambios",
+            disabled=not cats_changed, use_container_width=True, type="primary", key="save_cats"
+        ):
+            stage_change(_CATEGORIAS_KEY, serialize_categorias(cats_edit))
+            st.success("Categorías guardadas (pendiente de aplicar a Drive)")
+            st.rerun()
+    with col_reset:
+        if st.button("↩️ Revertir", disabled=not cats_changed, use_container_width=True, key="reset_cats"):
+            st.session_state.cats_edit = dict(categorias_dict)
+            st.rerun()
+
+    render_apply_button("tab_categorias")
+
+
+# ============================================================================
+# TAB 5: EDITOR LUA (lectura/escritura directa en Drive)
 # ============================================================================
 with tab_editor:
     st.markdown('<div class="card"><div class="card-title">✏️ Editor de Código Lua (Drive)</div></div>', unsafe_allow_html=True)
