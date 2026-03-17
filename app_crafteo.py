@@ -9,8 +9,9 @@ from config_items import (
     ALL_ITEMS, BASE_JOBS, ANIMACIONES, CATEGORIAS_CRAFTEO, TIPOS_CRAFTEO,
     PACKS_PREDEFINIDOS, get_job_metadata, get_job_display_name,
 )
+import lua_crafteo_generator as _lcg
 from lua_crafteo_generator import (
-    generate_crafting_block, add_crafting_to_config, get_config_file_content,
+    generate_crafting_block, add_crafting_to_config,
     parse_crafting_blocks, replace_crafting_in_config, delete_crafting_from_config,
     comment_crafting_in_config, uncomment_crafting_in_config, parse_commented_blocks,
     save_config_file, set_storage_mode, get_storage_mode, get_available_configs,
@@ -200,8 +201,51 @@ st.markdown("""
 
 
 # ============================================================================
-# HELPERS
+# HELPERS — PENDING CHANGES SYSTEM
 # ============================================================================
+
+_original_get_content = _lcg.get_config_file_content
+
+
+def get_config_file_content(job_key):
+    """Lee contenido: primero busca en cambios pendientes, luego en Drive."""
+    pending = st.session_state.get('pending_changes', {})
+    if job_key in pending:
+        return pending[job_key]
+    return _original_get_content(job_key)
+
+
+# Monkey-patch para que funciones internas (comment, delete, etc.) usen pending
+_lcg.get_config_file_content = get_config_file_content
+
+
+def stage_change(key, content):
+    """Almacena un cambio pendiente en session state."""
+    if 'pending_changes' not in st.session_state:
+        st.session_state.pending_changes = {}
+    st.session_state.pending_changes[key] = content
+
+
+def apply_all_changes():
+    """Escribe todos los cambios pendientes a Drive. Retorna (ok, errores)."""
+    pending = st.session_state.get('pending_changes', {})
+    if not pending:
+        return True, []
+    errors = []
+    for key, content in pending.items():
+        if not save_config_file(key, content):
+            errors.append(key)
+    if not errors:
+        st.session_state.pending_changes = {}
+        drive_manager.clear_cache()
+        return True, []
+    return False, errors
+
+
+def discard_all_changes():
+    """Descarta todos los cambios pendientes."""
+    st.session_state.pending_changes = {}
+
 
 def filter_items(items_dict, search_term):
     if not search_term:
@@ -210,22 +254,13 @@ def filter_items(items_dict, search_term):
     return {k: v for k, v in items_dict.items() if s in k.lower() or s in v.lower()}
 
 
-def get_all_configs_with_counts():
-    """Devuelve dict {key: n_crafteos} para todos los configs disponibles."""
-    result = {}
-    for key in get_available_configs():
-        content = get_config_file_content(key)
-        n = len(parse_crafting_blocks(content)) if content else 0
-        result[key] = n
-    return result
-
-
 # ============================================================================
 # SESSION STATE
 # ============================================================================
 defaults = {
     'ingredientes': [], 'recompensas': [], 'selected_config': None,
     'modo_edicion': False, 'nombre_original': None, 'crafteo_editando': None,
+    'pending_changes': {},
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -259,10 +294,17 @@ if not st.session_state.drive_connected:
 # ============================================================================
 # DATOS DE DRIVE
 # ============================================================================
-config_keys = get_available_configs()
+config_keys = list(set(get_available_configs()) | set(st.session_state.get('pending_changes', {}).keys()))
+config_keys.sort()
+
+pending = st.session_state.get('pending_changes', {})
+n_pending = len(pending)
 
 # Info bar
-col_info1, col_info2, col_info3 = st.columns([2, 2, 1])
+if n_pending > 0:
+    col_info1, col_info2, col_info3, col_info4 = st.columns([2, 2, 1, 1])
+else:
+    col_info1, col_info2, col_info3 = st.columns([2, 2, 1])
 with col_info1:
     st.success(f"☁️ Drive conectado — {len(config_keys)} configs")
 with col_info2:
@@ -271,6 +313,20 @@ with col_info3:
     if st.button("🔄 Refrescar Drive", key="refresh_configs", use_container_width=True):
         drive_manager.clear_cache()
         st.rerun()
+if n_pending > 0:
+    with col_info4:
+        if st.button(f"☁️ Aplicar {n_pending} cambio(s)", key="apply_changes", use_container_width=True, type="primary"):
+            ok, errs = apply_all_changes()
+            if ok:
+                st.rerun()
+            else:
+                st.error(f"Error al guardar: {', '.join(errs)}")
+    st.warning(f"⚠️ Tienes **{n_pending}** cambio(s) pendiente(s) sin subir a Drive: {', '.join(f'config_{k}.lua' for k in pending.keys())}")
+    col_discard, _ = st.columns([1, 3])
+    with col_discard:
+        if st.button("🗑️ Descartar cambios", key="discard_changes"):
+            discard_all_changes()
+            st.rerun()
 
 # ============================================================================
 # TABS PRINCIPALES
@@ -350,9 +406,9 @@ with tab_recetas:
                             # Desactivar
                             if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{idx}", use_container_width=True):
                                 new_content = comment_crafting_in_config(sel_config, nombre_c)
-                                if new_content and save_config_file(sel_config, new_content):
-                                    st.success(f"'{nombre_c}' desactivado en Drive")
-                                    drive_manager.clear_cache()
+                                if new_content:
+                                    stage_change(sel_config, new_content)
+                                    st.success(f"'{nombre_c}' desactivado (pendiente de aplicar)")
                                     st.rerun()
                                 else:
                                     st.error("Error al desactivar")
@@ -367,9 +423,9 @@ with tab_recetas:
                                 with ca:
                                     if st.button("Sí", key=f"yes_{sel_config}_{idx}", use_container_width=True):
                                         new_content = delete_crafting_from_config(sel_config, nombre_c)
-                                        if new_content and save_config_file(sel_config, new_content):
-                                            st.success(f"'{nombre_c}' eliminado de Drive")
-                                            drive_manager.clear_cache()
+                                        if new_content:
+                                            stage_change(sel_config, new_content)
+                                            st.success(f"'{nombre_c}' eliminado (pendiente de aplicar)")
                                             del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
                                             st.rerun()
                                 with cb:
@@ -394,9 +450,9 @@ with tab_recetas:
                     with col_d2:
                         if st.button("✅ Reactivar", key=f"react_{sel_config}_{idx_d}", use_container_width=True):
                             new_content = uncomment_crafting_in_config(sel_config, bloque_d.get('nombre', ''))
-                            if new_content and save_config_file(sel_config, new_content):
-                                st.success(f"'{bloque_d.get('nombre', '')}' reactivado en Drive")
-                                drive_manager.clear_cache()
+                            if new_content:
+                                stage_change(sel_config, new_content)
+                                st.success(f"'{bloque_d.get('nombre', '')}' reactivado (pendiente de aplicar)")
                                 st.rerun()
                             else:
                                 st.error("Error al reactivar la receta")
@@ -600,7 +656,7 @@ with tab_nueva:
 
             # Pack: predefinido o custom
             st.markdown("**Pack (opcional)**")
-            pack_mode = st.radio("", ["Predefinido", "Personalizado"], horizontal=True, key="pack_mode", label_visibility="collapsed")
+            pack_mode = st.radio("Tipo de pack", ["Predefinido", "Personalizado"], horizontal=True, key="pack_mode", label_visibility="collapsed")
             if pack_mode == "Predefinido":
                 pack_idx = PACKS_PREDEFINIDOS.index(d_pack) if d_pack in PACKS_PREDEFINIDOS else 0
                 pack = st.selectbox("Pack", PACKS_PREDEFINIDOS, pack_idx,
@@ -692,17 +748,14 @@ with tab_nueva:
                             for fe in full_errors:
                                 st.caption(f"⚠️ {fe}")
 
-                        if st.button("☁️ Sobreescribir en Drive",
+                        if st.button("💾 Guardar cambios",
                                      use_container_width=True, type="primary", key="save_edit"):
-                            if save_config_file(config_destino, config_editado):
-                                st.success("Cambios guardados en Drive")
-                                drive_manager.clear_cache()
-                                st.session_state.ingredientes = []
-                                st.session_state.recompensas = []
-                                st.session_state.nombre_original = None
-                                st.rerun()
-                            else:
-                                st.error("Error al guardar en Drive")
+                            stage_change(config_destino, config_editado)
+                            st.success("Cambios guardados (pendiente de aplicar)")
+                            st.session_state.ingredientes = []
+                            st.session_state.recompensas = []
+                            st.session_state.nombre_original = None
+                            st.rerun()
 
                         with st.expander("Preview config editado"):
                             st.code(config_editado, language="lua")
@@ -713,9 +766,9 @@ with tab_nueva:
                     st.markdown("---")
                     if st.button("🚫 Desactivar este crafteo", key="disable_edit", use_container_width=True):
                         config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
-                        if config_dis and save_config_file(config_destino, config_dis):
-                            st.success(f"'{st.session_state.nombre_original}' desactivado en Drive")
-                            drive_manager.clear_cache()
+                        if config_dis:
+                            stage_change(config_destino, config_dis)
+                            st.success(f"'{st.session_state.nombre_original}' desactivado (pendiente de aplicar)")
                             st.session_state.ingredientes = []
                             st.session_state.recompensas = []
                             st.session_state.nombre_original = None
@@ -738,17 +791,14 @@ with tab_nueva:
                         st.success(f"Config tiene {n_existentes} recetas. Se añadirá una nueva.")
 
                         if st.button(
-                            f"☁️ Guardar en Drive (config_{config_destino}.lua)",
+                            f"💾 Guardar receta (config_{config_destino}.lua)",
                             use_container_width=True, type="primary", key="save_new"
                         ):
-                            if save_config_file(config_destino, config_completo):
-                                st.success("Receta añadida y guardada en Drive")
-                                drive_manager.clear_cache()
-                                st.session_state.ingredientes = []
-                                st.session_state.recompensas = []
-                                st.rerun()
-                            else:
-                                st.error("Error al guardar en Drive")
+                            stage_change(config_destino, config_completo)
+                            st.success("Receta añadida (pendiente de aplicar)")
+                            st.session_state.ingredientes = []
+                            st.session_state.recompensas = []
+                            st.rerun()
 
                         with st.expander("Preview config completo"):
                             st.code(config_completo, language="lua")
@@ -762,12 +812,11 @@ with tab_nueva:
                             f"    table.insert(Config.Crafting, item)\n"
                             f"end\n"
                         )
-                        if st.button("☁️ Crear config en Drive",
+                        if st.button("💾 Crear config",
                                      use_container_width=True, type="primary", key="create_new"):
-                            if save_config_file(config_destino, nuevo_config):
-                                st.success("Config creado en Drive")
-                                drive_manager.clear_cache()
-                                st.rerun()
+                            stage_change(config_destino, nuevo_config)
+                            st.success("Config creado (pendiente de aplicar)")
+                            st.rerun()
 
 
 # ============================================================================
@@ -822,35 +871,31 @@ with tab_config:
         st.code(preview_content, language="lua")
 
         can_create = key_valid and not key_exists and new_config_name
-        if st.button("☁️ Crear config en Drive",
+        if st.button("💾 Crear config",
                      disabled=not can_create, use_container_width=True, type="primary", key="btn_create_cfg"):
             register_config_name(new_key, new_config_name)
+            stage_change(new_key, preview_content)
 
-            if save_config_file(new_key, preview_content):
-                st.success(f"✅ config_{new_key}.lua creado en Drive")
-                drive_manager.clear_cache()
+            if new_category and new_category not in CATEGORIAS_CRAFTEO:
+                CATEGORIAS_CRAFTEO[new_category] = f"📄 {new_display or new_category}"
 
-                if new_category and new_category not in CATEGORIAS_CRAFTEO:
-                    CATEGORIAS_CRAFTEO[new_category] = f"📄 {new_display or new_category}"
+            if new_key not in BASE_JOBS:
+                jv = new_job_value.strip()
+                if jv.startswith('{'):
+                    jv_parsed = jv
+                else:
+                    try:
+                        jv_parsed = int(jv)
+                    except ValueError:
+                        jv_parsed = 0
+                BASE_JOBS[new_key] = {
+                    'nombre': new_display or f"📄 {new_config_name}",
+                    'category': new_category or new_config_name,
+                    'job_value': jv_parsed,
+                }
 
-                if new_key not in BASE_JOBS:
-                    jv = new_job_value.strip()
-                    if jv.startswith('{'):
-                        jv_parsed = jv
-                    else:
-                        try:
-                            jv_parsed = int(jv)
-                        except ValueError:
-                            jv_parsed = 0
-                    BASE_JOBS[new_key] = {
-                        'nombre': new_display or f"📄 {new_config_name}",
-                        'category': new_category or new_config_name,
-                        'job_value': jv_parsed,
-                    }
-
-                st.rerun()
-            else:
-                st.error("Error al crear el archivo en Drive")
+            st.success(f"✅ config_{new_key}.lua creado (pendiente de aplicar)")
+            st.rerun()
 
 
 # ============================================================================
@@ -885,16 +930,13 @@ with tab_editor:
             c1, c2, c3 = st.columns([2, 1, 1])
             with c1:
                 if st.button(
-                    "☁️ Sobreescribir en Drive" if has_changes else "Sin cambios",
+                    "💾 Guardar cambios" if has_changes else "Sin cambios",
                     disabled=not has_changes, use_container_width=True, type="primary",
                     key=f"save_ed_{ed_config}"
                 ):
-                    if save_config_file(ed_config, edited):
-                        st.success(f"config_{ed_config}.lua guardado en Drive")
-                        drive_manager.clear_cache()
-                        st.rerun()
-                    else:
-                        st.error("Error al guardar en Drive")
+                    stage_change(ed_config, edited)
+                    st.success(f"config_{ed_config}.lua guardado (pendiente de aplicar)")
+                    st.rerun()
             with c2:
                 if st.button("↩️ Revertir", disabled=not has_changes, use_container_width=True, key=f"rev_{ed_config}"):
                     st.rerun()
