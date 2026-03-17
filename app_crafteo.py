@@ -1,30 +1,25 @@
 """
-Generador de Crafteos para RedM - VORP Crafting System
-Aplicación Streamlit interactiva con diseño mejorado
+Gestor de Configs de Crafteo para RedM — VORP Crafting System
+Herramienta Streamlit con integración Google Drive
 """
 
 import streamlit as st
+import traceback
 from config_items import (
-    JOBS, TIPOS_CRAFTEO, ITEMS_RECOMPENSA, ITEMS_INGREDIENTES, 
-    ANIMACIONES, CONFIG_PATH, ALL_ITEMS, CATEGORIAS_CRAFTEO
+    ALL_ITEMS, BASE_JOBS, ANIMACIONES, CATEGORIAS_CRAFTEO, TIPOS_CRAFTEO,
+    PACKS_PREDEFINIDOS, get_job_metadata, get_job_display_name,
 )
 from lua_crafteo_generator import (
-    generate_crafting_block, 
-    add_crafting_to_config,
-    get_config_file_content,
-    parse_crafting_blocks,
-    replace_crafting_in_config,
-    delete_crafting_from_config,
-    comment_crafting_in_config,
-    uncomment_crafting_in_config,
-    parse_commented_blocks,
-    save_config_file,
-    set_storage_mode,
-    get_storage_mode
+    generate_crafting_block, add_crafting_to_config, get_config_file_content,
+    parse_crafting_blocks, replace_crafting_in_config, delete_crafting_from_config,
+    comment_crafting_in_config, uncomment_crafting_in_config, parse_commented_blocks,
+    save_config_file, set_storage_mode, get_storage_mode, get_available_configs,
+    get_config_name, register_config_name, create_empty_config,
+    validate_lua_syntax, validate_full_config,
 )
 
 # ============================================================================
-# GOOGLE DRIVE - INICIALIZACIÓN
+# GOOGLE DRIVE — INICIALIZACIÓN
 # ============================================================================
 _drive_available = False
 try:
@@ -35,2319 +30,917 @@ except ImportError:
 
 
 def init_drive_connection():
-    """Intenta conectar con Google Drive usando los secrets de Streamlit."""
-    import traceback
-    
     if not _drive_available:
-        st.session_state.drive_error = "Módulo drive_manager no disponible (ImportError)"
+        st.session_state.drive_error = "Módulo drive_manager no disponible"
         return False
-    
     try:
-        # Leer credenciales de la cuenta de servicio desde st.secrets
         if "gcp_service_account" not in st.secrets:
-            available_keys = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else str(type(st.secrets))
-            st.session_state.drive_error = (
-                f"No se encontró [gcp_service_account] en st.secrets.\n"
-                f"Claves disponibles: {available_keys}"
-            )
+            st.session_state.drive_error = "No se encontró [gcp_service_account] en st.secrets."
             return False
-        
-        # Pasar st.secrets directamente (método oficial de Streamlit)
-        # NO convertir a dict ni hacer JSON roundtrip
         raw = st.secrets["gcp_service_account"]
-        
-        # Verificar campos críticos
-        if 'private_key' not in raw:
-            st.session_state.drive_error = f"Falta 'private_key' en secrets. Campos: {list(raw.keys())}"
+        if 'private_key' not in raw or 'client_email' not in raw:
+            st.session_state.drive_error = "Faltan campos en secrets (private_key/client_email)."
             return False
-        if 'client_email' not in raw:
-            st.session_state.drive_error = f"Falta 'client_email' en secrets. Campos: {list(raw.keys())}"
-            return False
-        
-        # init_from_secrets ahora retorna (success, debug_info)
         success, debug_info = drive_manager.init_from_secrets(raw)
         st.session_state.drive_debug = debug_info
-        
         if success:
             st.session_state.drive_error = None
             set_storage_mode('drive', drive_manager)
             return True
         else:
-            st.session_state.drive_error = f"Todos los métodos de conexión fallaron.\n\n{debug_info}"
+            st.session_state.drive_error = f"Conexión fallida.\n{debug_info}"
             return False
     except Exception as e:
-        error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
-        st.session_state.drive_error = error_msg
-        print(f"Error inicializando Drive: {error_msg}")
+        st.session_state.drive_error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
         return False
 
 
-# Inicializar conexión Drive
 if 'drive_error' not in st.session_state:
     st.session_state.drive_error = None
 
-if 'drive_connected' not in st.session_state or st.session_state.get('_retry_drive', False):
+if 'drive_connected' not in st.session_state or st.session_state.get('_retry_drive'):
     st.session_state._retry_drive = False
     st.session_state.drive_connected = init_drive_connection()
-elif st.session_state.drive_connected:
-    # Re-configurar storage mode (se pierde entre reruns)
-    if _drive_available:
-        set_storage_mode('drive', drive_manager)
+elif st.session_state.drive_connected and _drive_available:
+    set_storage_mode('drive', drive_manager)
 
 # ============================================================================
-# CONFIGURACIÓN DE LA PÁGINA
+# CONFIGURACIÓN DE PÁGINA
 # ============================================================================
 st.set_page_config(
-    page_title="Generador de Crafteos RedM",
-    page_icon="🔨",
+    page_title="Craftsman's Forge — RedM",
+    page_icon="⚒️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ============================================================================
-# ESTILOS CSS PERSONALIZADOS - TEMA RED DEAD REDEMPTION 2
+# CSS — Tema Western compacto
 # ============================================================================
 st.markdown("""
 <style>
-    /* Importar fuentes Western */
-    @import url('https://fonts.googleapis.com/css2?family=Rye&family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&family=UnifrakturMaguntia&display=swap');
-    
-    /* FIX: Los emojis NO deben heredar italic */
-    .emoji, [class*="icon"], .empty-state-icon {
-        font-style: normal !important;
-    }
-    
-    /* Reset y variables - Paleta RDR2 Auténtica */
+    @import url('https://fonts.googleapis.com/css2?family=Rye&family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&display=swap');
     :root {
-        --rdr-gold: #c9a227;
-        --rdr-gold-light: #dbb84d;
-        --rdr-gold-dark: #8b6914;
-        --rdr-red: #8b0000;
-        --rdr-red-dark: #5c0000;
-        --rdr-red-blood: #6b1c1c;
-        --rdr-brown: #3d2914;
-        --rdr-brown-light: #5c3d1e;
-        --rdr-brown-dark: #1a1108;
-        --rdr-brown-warm: #4a3728;
-        --rdr-leather: #8b4513;
-        --rdr-leather-dark: #654321;
-        --rdr-parchment: #d4c5a9;
-        --rdr-parchment-dark: #c4b089;
-        --rdr-ink: #1a1a1a;
-        --rdr-cream: #f5e6c8;
-        --rdr-rust: #b7410e;
-        --rdr-sepia: #704214;
-        --border-radius: 3px;
+        --gold: #c9a227; --gold-light: #dbb84d; --gold-dark: #8b6914;
+        --red: #8b0000; --red-dark: #5c0000;
+        --brown: #3d2914; --brown-light: #5c3d1e; --brown-dark: #1a1108;
+        --leather: #8b4513; --leather-dark: #654321;
+        --parchment: #d4c5a9; --cream: #f5e6c8; --sepia: #704214;
     }
-    
-    /* ====== TEXTURAS BASE64 PARA EVITAR DEPENDENCIAS EXTERNAS ====== */
-    
-    /* Fondo general - Textura de cuero oscuro con grano */
     .stApp {
-        background: 
-            /* Capa de oscurecimiento */
-            linear-gradient(rgba(18, 12, 8, 0.92), rgba(26, 17, 8, 0.95)),
-            /* Textura de cuero marrón oscuro */
-            url('https://images.unsplash.com/photo-1531685250784-7569952593d2?w=1920&q=80');
-        background-size: cover;
-        background-attachment: fixed;
-        background-position: center;
+        background: linear-gradient(rgba(18,12,8,.94), rgba(26,17,8,.96));
+        background-size: cover; background-attachment: fixed;
     }
-    
-    /* Header principal - Estilo WANTED POSTER auténtico */
+    /* Header */
     .main-header {
-        text-align: center;
-        padding: 50px 40px 40px 40px;
-        background: 
-            /* Textura de papel viejo/pergamino */
-            linear-gradient(rgba(212, 197, 169, 0.97), rgba(196, 176, 137, 0.95)),
-            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=1200&q=80');
-        background-size: cover;
-        background-position: center;
-        border-radius: var(--border-radius);
-        margin-bottom: 30px;
-        border: none;
-        box-shadow: 
-            0 0 0 3px var(--rdr-brown-dark),
-            0 0 0 6px var(--rdr-leather),
-            0 0 0 8px var(--rdr-brown-dark),
-            0 12px 40px rgba(0, 0, 0, 0.7),
-            inset 0 0 100px rgba(139, 69, 19, 0.15);
-        position: relative;
-        /* Efecto de papel desgastado */
-        clip-path: polygon(
-            0% 2%, 2% 0%, 98% 0%, 100% 2%,
-            100% 98%, 98% 100%, 2% 100%, 0% 98%
-        );
+        text-align:center; padding:30px 20px 25px; margin-bottom:20px;
+        background: linear-gradient(var(--parchment), #c4b089);
+        border-radius:3px;
+        box-shadow: 0 0 0 3px var(--brown-dark), 0 0 0 5px var(--leather), 0 8px 25px rgba(0,0,0,.6);
     }
-    
-    /* Decoraciones de esquina estilo cartel */
-    .main-header::before {
-        content: "★ WANTED ★";
-        position: absolute;
-        top: 12px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-family: 'Rye', cursive;
-        font-size: 0.85rem;
-        color: var(--rdr-red-dark);
-        letter-spacing: 8px;
-        opacity: 0.7;
-    }
-    
-    .main-header::after {
-        content: "— DEAD OR ALIVE —";
-        position: absolute;
-        bottom: 12px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-family: 'IM Fell English', serif;
-        font-size: 0.75rem;
-        color: var(--rdr-sepia);
-        letter-spacing: 3px;
-        font-style: italic;
-        opacity: 0.6;
-    }
-    
     .main-header h1 {
-        font-family: 'Rye', cursive;
-        color: var(--rdr-brown-dark);
-        margin: 15px 0;
-        font-size: 3rem;
-        font-weight: 400;
-        text-shadow: 
-            2px 2px 0 rgba(212, 197, 169, 0.8),
-            -1px -1px 0 rgba(0, 0, 0, 0.1);
-        letter-spacing: 4px;
-        text-transform: uppercase;
+        font-family:'Rye',cursive; color:var(--brown-dark); font-size:2.4rem;
+        margin:8px 0; letter-spacing:3px; text-transform:uppercase;
     }
-    
     .main-header p {
-        font-family: 'IM Fell English', serif;
-        color: var(--rdr-sepia);
-        margin: 10px 0 15px 0;
-        font-size: 1.15rem;
-        font-style: italic;
-        letter-spacing: 1px;
+        font-family:'IM Fell English',serif; color:var(--sepia);
+        font-style:italic; margin:5px 0 0; font-size:1rem;
     }
-    
-    /* Tarjetas de sección - Estilo cuero curtido */
-    .section-card {
-        background: 
-            /* Textura de cuero */
-            linear-gradient(145deg, rgba(74, 55, 40, 0.95) 0%, rgba(42, 28, 15, 0.98) 50%, rgba(26, 17, 8, 0.99) 100%),
-            url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80');
-        background-size: cover;
-        padding: 25px;
-        border-radius: var(--border-radius);
-        margin-bottom: 20px;
-        border: 3px solid var(--rdr-leather-dark);
-        box-shadow: 
-            inset 0 2px 4px rgba(255,255,255,0.05),
-            inset 0 -2px 4px rgba(0,0,0,0.3),
-            inset 0 0 40px rgba(0,0,0,0.4),
-            0 6px 20px rgba(0,0,0,0.5);
-        position: relative;
+    /* Cards */
+    .card {
+        background: linear-gradient(145deg, rgba(74,55,40,.95), rgba(42,28,15,.98));
+        padding:18px; border-radius:3px; margin-bottom:15px;
+        border:2px solid var(--leather-dark);
+        box-shadow: inset 0 0 30px rgba(0,0,0,.4), 0 4px 15px rgba(0,0,0,.4);
     }
-    
-    /* Efecto de costuras en las tarjetas */
-    .section-card::before {
-        content: "";
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        right: 8px;
-        bottom: 8px;
-        border: 1px dashed rgba(201, 162, 39, 0.2);
-        border-radius: 2px;
-        pointer-events: none;
+    .card-title {
+        font-family:'Cinzel',serif; color:var(--gold); font-weight:600;
+        margin-bottom:12px; text-transform:uppercase; letter-spacing:2px;
+        border-bottom:1px solid var(--leather); padding-bottom:8px; font-size:.9rem;
     }
-    
-    .section-card:hover {
-        border-color: var(--rdr-gold-dark);
-        box-shadow: 
-            inset 0 2px 4px rgba(255,255,255,0.08),
-            inset 0 -2px 4px rgba(0,0,0,0.3),
-            inset 0 0 40px rgba(0,0,0,0.4),
-            0 8px 25px rgba(201, 162, 39, 0.15);
+    /* Ingredient/Reward rows */
+    .item-row {
+        background: linear-gradient(90deg, rgba(139,69,19,.25), rgba(61,41,20,.45));
+        padding:10px 14px; border-radius:3px; margin:6px 0;
+        border-left:3px solid var(--gold); display:flex;
+        align-items:center; justify-content:space-between;
     }
-    
-    .section-title {
-        font-family: 'Cinzel', serif;
-        color: var(--rdr-gold);
-        font-weight: 600;
-        margin-bottom: 15px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        border-bottom: 1px solid var(--rdr-leather);
-        padding-bottom: 10px;
+    .item-row .name { font-family:'Cinzel',serif; color:var(--cream); font-weight:600; font-size:.85rem; }
+    .item-row .id { font-family:'IM Fell English',serif; color:var(--parchment); font-size:.8rem; opacity:.8; }
+    .item-row .count {
+        background:var(--gold); color:var(--brown-dark); padding:4px 10px;
+        border-radius:2px; font-family:'Cinzel',serif; font-weight:700; font-size:.8rem;
     }
-    
-    /* Ingredientes - Estilo lista de materiales */
-    .ingredient-box {
-        background: linear-gradient(90deg, rgba(139, 69, 19, 0.3) 0%, rgba(61, 41, 20, 0.5) 100%);
-        padding: 15px 20px;
-        border-radius: var(--border-radius);
-        margin: 10px 0;
-        border-left: 4px solid var(--rdr-gold);
-        border-right: 1px solid var(--rdr-leather);
-        border-top: 1px solid rgba(139, 69, 19, 0.3);
-        border-bottom: 1px solid rgba(139, 69, 19, 0.3);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        transition: all 0.3s ease;
-        position: relative;
+    /* Stat boxes */
+    .stat-box {
+        background: linear-gradient(var(--parchment), #bca981);
+        padding:14px 10px; border-radius:3px; text-align:center; margin:6px 0;
+        border:2px solid var(--brown);
+        box-shadow: inset 0 0 15px rgba(139,69,19,.15), 0 3px 10px rgba(0,0,0,.3);
     }
-    
-    .ingredient-box::before {
-        content: "◆";
-        position: absolute;
-        left: -12px;
-        color: var(--rdr-gold);
-        font-size: 0.6rem;
+    .stat-box .num { font-family:'Rye',cursive; font-size:1.8rem; color:var(--red-dark); }
+    .stat-box .lbl { font-family:'Cinzel',serif; color:var(--brown); font-size:.7rem; text-transform:uppercase; letter-spacing:1px; margin-top:3px; }
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(rgba(26,17,8,.96), rgba(42,28,15,.97));
+        border-right:3px solid var(--leather-dark);
     }
-    
-    .ingredient-box:hover {
-        transform: translateX(8px);
-        background: linear-gradient(90deg, rgba(201, 162, 39, 0.15) 0%, rgba(61, 41, 20, 0.6) 100%);
-        border-left-color: var(--rdr-gold-light);
-    }
-    
-    .ingredient-info {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-    
-    .ingredient-icon {
-        font-size: 1.5rem;
-    }
-    
-    .ingredient-name {
-        font-family: 'Cinzel', serif;
-        font-weight: 600;
-        color: var(--rdr-cream);
-        text-transform: uppercase;
-        font-size: 0.9rem;
-        letter-spacing: 1px;
-    }
-    
-    .ingredient-id {
-        font-family: 'IM Fell English', serif;
-        color: var(--rdr-parchment);
-        font-size: 0.85rem;
-        font-style: italic;
-        opacity: 0.8;
-    }
-    
-    .ingredient-count {
-        background: linear-gradient(135deg, var(--rdr-gold) 0%, var(--rdr-gold-light) 100%);
-        color: var(--rdr-brown-dark);
-        padding: 6px 14px;
-        border-radius: 2px;
-        font-family: 'Cinzel', serif;
-        font-weight: 700;
-        font-size: 0.9rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    }
-    
-    /* Stats cards - Estilo WANTED POSTER pequeño */
-    .stats-container {
-        display: flex;
-        gap: 15px;
-        margin-bottom: 20px;
-    }
-    
-    .stat-card {
-        background: 
-            linear-gradient(rgba(212, 197, 169, 0.95), rgba(188, 169, 129, 0.92)),
-            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=400&q=60');
-        background-size: cover;
-        padding: 20px;
-        border-radius: var(--border-radius);
-        flex: 1;
-        text-align: center;
-        border: 3px solid var(--rdr-brown);
-        box-shadow: 
-            0 0 0 1px var(--rdr-leather-dark),
-            inset 0 0 25px rgba(139, 69, 19, 0.2),
-            0 5px 15px rgba(0,0,0,0.4);
-        position: relative;
-        /* Efecto de papel rasgado */
-        clip-path: polygon(
-            1% 0%, 99% 1%, 100% 99%, 0% 98%
-        );
-    }
-    
-    .stat-card::before {
-        content: "★";
-        position: absolute;
-        top: 5px;
-        right: 8px;
-        color: var(--rdr-red);
-        font-size: 0.9rem;
-        text-shadow: 0 0 2px rgba(0,0,0,0.3);
-    }
-    
-    .stat-card::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 2px,
-            rgba(139, 69, 19, 0.03) 2px,
-            rgba(139, 69, 19, 0.03) 4px
-        );
-        pointer-events: none;
-    }
-    
-    .stat-number {
-        font-family: 'Rye', cursive;
-        font-size: 2.4rem;
-        font-weight: 400;
-        color: var(--rdr-red-dark);
-        text-shadow: 1px 1px 0 rgba(255,255,255,0.4);
-        position: relative;
-        z-index: 1;
-    }
-    
-    .stat-label {
-        font-family: 'Cinzel', serif;
-        color: var(--rdr-brown);
-        font-size: 0.8rem;
-        margin-top: 5px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        position: relative;
-        z-index: 1;
-    }
-    
-    /* Job badges - Estilo placas de sheriff */
-    .job-badge {
-        display: inline-block;
-        padding: 10px 18px;
-        border-radius: 2px;
-        font-family: 'Cinzel', serif;
-        font-size: 0.8rem;
-        font-weight: 600;
-        margin: 4px;
-        background: 
-            linear-gradient(145deg, rgba(74, 55, 40, 0.95) 0%, rgba(42, 28, 15, 0.98) 100%),
-            url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200&q=60');
-        background-size: cover;
-        border: 2px solid var(--rdr-gold-dark);
-        color: var(--rdr-gold);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        box-shadow: 
-            inset 0 1px 2px rgba(255,255,255,0.1),
-            0 3px 8px rgba(0,0,0,0.4);
-        transition: all 0.3s ease;
-        position: relative;
-    }
-    
-    .job-badge::before {
-        content: "◆";
-        margin-right: 6px;
-        font-size: 0.6rem;
-        opacity: 0.7;
-    }
-    
-    .job-badge:hover {
-        transform: scale(1.05) translateY(-2px);
-        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-gold-dark) 100%);
-        color: var(--rdr-brown-dark);
-        border-color: var(--rdr-gold-light);
-        box-shadow: 
-            0 6px 20px rgba(201, 162, 39, 0.4),
-            inset 0 1px 3px rgba(255,255,255,0.2);
-    }
-    
-    /* Resumen crafteo - Estilo receta/documento antiguo */
-    .craft-summary {
-        background: 
-            linear-gradient(rgba(212, 197, 169, 0.97), rgba(196, 176, 137, 0.95)),
-            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=800&q=70');
-        background-size: cover;
-        border: none;
-        border-radius: var(--border-radius);
-        padding: 30px;
-        margin: 15px 0;
-        box-shadow: 
-            0 0 0 2px var(--rdr-brown),
-            0 0 0 4px var(--rdr-leather-dark),
-            inset 0 0 40px rgba(139, 69, 19, 0.15),
-            0 8px 25px rgba(0,0,0,0.4);
-        position: relative;
-    }
-    
-    .craft-summary::before {
-        content: "✦ RECETA DE CRAFTEO ✦";
-        position: absolute;
-        top: -12px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-family: 'Rye', cursive;
-        font-size: 0.75rem;
-        color: var(--rdr-sepia);
-        background: var(--rdr-parchment);
-        padding: 4px 15px;
-        letter-spacing: 2px;
-        border: 1px solid var(--rdr-leather);
-    }
-    
-    .craft-summary::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 3px,
-            rgba(139, 69, 19, 0.02) 3px,
-            rgba(139, 69, 19, 0.02) 6px
-        );
-        pointer-events: none;
-        border-radius: var(--border-radius);
-    }
-    
-    .craft-summary-title {
-        font-family: 'Rye', cursive;
-        color: var(--rdr-red-dark);
-        font-size: 1.4rem;
-        font-weight: 400;
-        margin-bottom: 20px;
-        text-align: center;
-        text-transform: uppercase;
-        letter-spacing: 3px;
-        position: relative;
-        z-index: 1;
-    }
-    
-    .summary-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 12px 0;
-        border-bottom: 1px dashed rgba(139, 69, 19, 0.4);
-        position: relative;
-        z-index: 1;
-    }
-    
-    .summary-label {
-        font-family: 'IM Fell English', serif;
-        color: var(--rdr-sepia);
-        font-style: italic;
-        font-size: 1rem;
-    }
-    
-    .summary-value {
-        font-family: 'Cinzel', serif;
-        color: var(--rdr-brown-dark);
-        font-weight: 600;
-    }
-    
-    /* Código Lua - Estilo telegrama/documento oficial */
-    .lua-code-container {
-        background: 
-            linear-gradient(rgba(30, 24, 18, 0.98), rgba(22, 18, 14, 0.99)),
-            url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=60');
-        background-size: cover;
-        border-radius: var(--border-radius);
-        border: 3px solid var(--rdr-leather-dark);
-        overflow: hidden;
-        box-shadow: 
-            inset 0 0 30px rgba(0,0,0,0.6),
-            0 6px 20px rgba(0,0,0,0.5);
-    }
-    
-    .lua-code-header {
-        background: 
-            linear-gradient(90deg, rgba(61, 41, 20, 0.95) 0%, rgba(92, 61, 30, 0.9) 50%, rgba(61, 41, 20, 0.95) 100%);
-        padding: 15px 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 2px solid var(--rdr-gold);
-        position: relative;
-    }
-    
-    .lua-code-header::before {
-        content: "◆ CÓDIGO LUA ◆";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-family: 'Cinzel', serif;
-        font-size: 0.7rem;
-        color: var(--rdr-gold);
-        letter-spacing: 3px;
-        opacity: 0.6;
-    }
-    
-    .lua-code-title {
-        font-family: 'Cinzel', serif;
-        color: var(--rdr-gold);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-    }
-    
-    /* Botones personalizados - Estilo western */
+    /* Buttons */
     .stButton > button {
-        font-family: 'Cinzel', serif !important;
-        border-radius: 2px !important;
-        font-weight: 600 !important;
-        text-transform: uppercase !important;
-        letter-spacing: 1px !important;
-        transition: all 0.3s ease !important;
-        border: 2px solid var(--rdr-gold) !important;
-        background: 
-            linear-gradient(145deg, rgba(74, 55, 40, 0.95) 0%, rgba(42, 28, 15, 0.98) 100%) !important;
-        color: var(--rdr-gold) !important;
-        box-shadow: 
-            inset 0 1px 2px rgba(255,255,255,0.1),
-            0 3px 8px rgba(0,0,0,0.3) !important;
+        font-family:'Cinzel',serif !important; border-radius:2px !important;
+        font-weight:600 !important; text-transform:uppercase !important; letter-spacing:1px !important;
+        border:2px solid var(--gold) !important;
+        background: linear-gradient(145deg, rgba(74,55,40,.95), rgba(42,28,15,.98)) !important;
+        color:var(--gold) !important;
     }
-    
     .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-gold-dark) 100%) !important;
-        color: var(--rdr-brown-dark) !important;
-        box-shadow: 
-            0 6px 20px rgba(201, 162, 39, 0.4),
-            inset 0 1px 3px rgba(255,255,255,0.2) !important;
+        background: linear-gradient(145deg, var(--gold), var(--gold-dark)) !important;
+        color:var(--brown-dark) !important;
     }
-    
-    /* Download button - Estilo REWARD/BOUNTY */
     .stDownloadButton > button {
-        background: 
-            linear-gradient(145deg, var(--rdr-red) 0%, var(--rdr-red-dark) 100%) !important;
-        border: 3px solid var(--rdr-gold) !important;
-        border-radius: 2px !important;
-        font-family: 'Rye', cursive !important;
-        font-weight: 400 !important;
-        color: var(--rdr-gold) !important;
-        text-transform: uppercase !important;
-        letter-spacing: 2px !important;
-        box-shadow: 
-            0 0 0 1px var(--rdr-brown-dark),
-            0 4px 12px rgba(139, 0, 0, 0.4) !important;
+        background: linear-gradient(145deg, var(--red), var(--red-dark)) !important;
+        border:2px solid var(--gold) !important; color:var(--gold) !important;
+        font-family:'Rye',cursive !important; letter-spacing:2px !important;
     }
-    
-    .stDownloadButton > button:hover {
-        transform: translateY(-3px) scale(1.02) !important;
-        background: linear-gradient(145deg, #a50000 0%, var(--rdr-red) 100%) !important;
-        box-shadow: 
-            0 0 0 1px var(--rdr-gold),
-            0 8px 25px rgba(139, 0, 0, 0.5) !important;
+    /* Inputs */
+    .stSelectbox label, .stNumberInput label, .stTextInput label, .stTextArea label {
+        font-family:'Cinzel',serif !important; color:var(--gold) !important; text-transform:uppercase !important;
     }
-    
-    /* Selectbox mejorado */
-    .stSelectbox > div > div {
-        border-radius: 2px !important;
-        border: 2px solid var(--rdr-leather) !important;
-        background: var(--rdr-brown-dark) !important;
-        font-family: 'Cinzel', serif !important;
+    .stSelectbox > div > div, .stNumberInput > div > div > input, .stTextInput > div > div > input {
+        border:2px solid var(--leather) !important; border-radius:2px !important;
+        background:var(--brown-dark) !important; color:var(--cream) !important;
     }
-    
-    .stSelectbox label {
-        font-family: 'Cinzel', serif !important;
-        color: var(--rdr-gold) !important;
-        text-transform: uppercase !important;
-        letter-spacing: 1px !important;
-    }
-    
-    /* Number input */
-    .stNumberInput > div > div > input {
-        border: 2px solid var(--rdr-leather) !important;
-        border-radius: 2px !important;
-        background: var(--rdr-brown-dark) !important;
-        color: var(--rdr-cream) !important;
-        font-family: 'Cinzel', serif !important;
-    }
-    
-    .stNumberInput label {
-        font-family: 'Cinzel', serif !important;
-        color: var(--rdr-gold) !important;
-    }
-    
-    /* Text input */
-    .stTextInput > div > div > input {
-        border: 2px solid var(--rdr-leather) !important;
-        border-radius: 2px !important;
-        background: var(--rdr-brown-dark) !important;
-        color: var(--rdr-cream) !important;
-        font-family: 'IM Fell English', serif !important;
-    }
-    
-    .stTextInput label {
-        font-family: 'Cinzel', serif !important;
-        color: var(--rdr-gold) !important;
-        text-transform: uppercase !important;
-    }
-    
-    /* Expander - Estilo acordeón western */
-    .streamlit-expanderHeader {
-        background: linear-gradient(90deg, var(--rdr-brown) 0%, var(--rdr-brown-light) 100%) !important;
-        border: 2px solid var(--rdr-leather) !important;
-        border-radius: 2px !important;
-        font-family: 'Cinzel', serif !important;
-        color: var(--rdr-gold) !important;
-    }
-    
-    /* Sidebar - Estilo tablón de madera del saloon */
-    .css-1d391kg, [data-testid="stSidebar"] {
-        background: 
-            linear-gradient(rgba(26, 17, 8, 0.94), rgba(42, 28, 15, 0.96)),
-            url('https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=500&q=80');
-        background-size: cover;
-        background-position: center;
-        border-right: 4px solid var(--rdr-leather-dark);
-        box-shadow: 
-            inset -5px 0 20px rgba(0,0,0,0.3),
-            5px 0 15px rgba(0,0,0,0.4);
-    }
-    
-    [data-testid="stSidebar"]::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: repeating-linear-gradient(
-            90deg,
-            transparent,
-            transparent 48px,
-            rgba(0,0,0,0.1) 48px,
-            rgba(0,0,0,0.1) 50px
-        );
-        pointer-events: none;
-    }
-    
-    [data-testid="stSidebar"] .stMarkdown {
-        font-family: 'IM Fell English', serif;
-    }
-    
-    .sidebar-stat {
-        background: 
-            linear-gradient(145deg, rgba(212, 197, 169, 0.92), rgba(188, 169, 129, 0.88)),
-            url('https://images.unsplash.com/photo-1541123603104-512919d6a96c?w=300&q=60');
-        background-size: cover;
-        padding: 20px 15px;
-        border-radius: 2px;
-        margin: 12px 5px;
-        text-align: center;
-        border: 2px solid var(--rdr-brown);
-        box-shadow: 
-            0 0 0 1px var(--rdr-leather-dark),
-            inset 0 0 20px rgba(139, 69, 19, 0.15),
-            0 4px 12px rgba(0,0,0,0.4);
-        position: relative;
-    }
-    
-    .sidebar-stat::before {
-        content: "★";
-        position: absolute;
-        top: 3px;
-        left: 50%;
-        transform: translateX(-50%);
-        color: var(--rdr-red-dark);
-        font-size: 0.6rem;
-    }
-    
-    .sidebar-stat-number {
-        font-family: 'Rye', cursive;
-        font-size: 2.2rem;
-        font-weight: 400;
-        color: var(--rdr-red-dark);
-        text-shadow: 1px 1px 0 rgba(255,255,255,0.3);
-    }
-    
-    .sidebar-stat-label {
-        font-family: 'Cinzel', serif;
-        color: var(--rdr-brown);
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-top: 5px;
-    }
-    
-    /* Info boxes - Estilo nota clavada */
-    .info-tip {
-        background: 
-            linear-gradient(rgba(212, 197, 169, 0.95), rgba(196, 176, 137, 0.9));
-        border-left: none;
-        border: 2px solid var(--rdr-brown);
-        padding: 15px 20px;
-        border-radius: 2px;
-        margin: 12px 5px;
-        font-family: 'IM Fell English', serif;
-        color: var(--rdr-sepia);
-        box-shadow: 
-            3px 3px 8px rgba(0,0,0,0.3),
-            inset 0 0 15px rgba(139, 69, 19, 0.1);
-        position: relative;
-        transform: rotate(-0.5deg);
-    }
-    
-    .info-tip::before {
-        content: "📌";
-        position: absolute;
-        top: -8px;
-        left: 10px;
-        font-size: 1rem;
-        font-style: normal;
-    }
-    
-    .info-tip strong {
-        font-style: normal;
-    }
-    
-    /* Empty state */
-    .empty-state {
-        text-align: center;
-        padding: 50px 20px;
-        color: var(--rdr-parchment);
-        font-family: 'IM Fell English', serif;
-    }
-    
-    .empty-state-icon {
-        font-size: 3.5rem;
-        margin-bottom: 15px;
-        font-style: normal !important;
-    }
-    
-    /* Divider decorativo */
-    .western-divider {
-        text-align: center;
-        margin: 20px 0;
-        color: var(--rdr-gold);
-        font-size: 1.2rem;
-        letter-spacing: 10px;
-    }
-    
-    /* Animations */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .animate-in {
-        animation: fadeIn 0.4s ease-out;
-    }
-    
-    /* Scrollbar - Estilo cuero */
-    ::-webkit-scrollbar {
-        width: 12px;
-        height: 12px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: var(--rdr-brown-dark);
-        border: 1px solid var(--rdr-leather);
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: linear-gradient(145deg, var(--rdr-leather) 0%, var(--rdr-brown) 100%);
-        border-radius: 2px;
-        border: 1px solid var(--rdr-gold);
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-leather) 100%);
-    }
-    
-    /* Code block */
-    code {
-        white-space: pre-wrap !important;
-        font-family: 'Courier New', monospace !important;
-        background: var(--rdr-brown-dark) !important;
-        color: var(--rdr-gold) !important;
-    }
-    
-    /* Tabs - Estilo pestañas de saloon */
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 4px;
-        background: var(--rdr-brown-dark);
-        padding: 5px;
-        border-radius: 2px;
-        border: 2px solid var(--rdr-leather);
+        gap:4px; background:var(--brown-dark); padding:5px; border-radius:2px; border:2px solid var(--leather);
     }
-    
     .stTabs [data-baseweb="tab"] {
-        font-family: 'Cinzel', serif !important;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--rdr-parchment);
-        background: transparent;
-        border-radius: 2px;
+        font-family:'Cinzel',serif !important; text-transform:uppercase; letter-spacing:1px; color:var(--parchment);
     }
-    
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(145deg, var(--rdr-gold) 0%, var(--rdr-gold-light) 100%) !important;
-        color: var(--rdr-brown-dark) !important;
+        background: linear-gradient(145deg, var(--gold), var(--gold-light)) !important;
+        color:var(--brown-dark) !important;
     }
-    
     /* Checkbox */
-    .stCheckbox label {
-        font-family: 'IM Fell English', serif !important;
-        color: var(--rdr-parchment) !important;
+    .stCheckbox label { font-family:'IM Fell English',serif !important; color:var(--parchment) !important; }
+    /* Expander */
+    .streamlit-expanderHeader {
+        font-family:'Cinzel',serif !important; color:var(--gold) !important;
     }
-    
-    /* Success/Error messages */
-    .stSuccess {
-        background: linear-gradient(90deg, rgba(34, 139, 34, 0.2) 0%, transparent 100%) !important;
-        border-left: 4px solid #228b22 !important;
-        font-family: 'IM Fell English', serif !important;
-    }
-    
-    .stError {
-        background: linear-gradient(90deg, rgba(139, 0, 0, 0.2) 0%, transparent 100%) !important;
-        border-left: 4px solid var(--rdr-red) !important;
-        font-family: 'IM Fell English', serif !important;
-    }
-    
-    /* Decoración de esquinas */
-    .corner-decoration {
-        position: relative;
-    }
-    
-    .corner-decoration::before,
-    .corner-decoration::after {
-        content: "✦";
-        color: var(--rdr-gold);
-        position: absolute;
-        font-size: 0.8rem;
-    }
-    
-    .corner-decoration::before {
-        top: 5px;
-        left: 5px;
-    }
-    
-    .corner-decoration::after {
-        bottom: 5px;
-        right: 5px;
-    }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Custom footer */
-    .rdr-footer {
-        text-align: center;
-        padding: 20px;
-        margin-top: 30px;
-        border-top: 2px solid var(--rdr-leather);
-        font-family: 'IM Fell English', serif;
-        color: var(--rdr-parchment);
-        font-style: italic;
-    }
+    /* Code */
+    code { background:var(--brown-dark) !important; color:var(--gold) !important; }
+    /* Hide branding */
+    #MainMenu {visibility:hidden;} footer {visibility:hidden;}
+    /* Divider */
+    .divider { text-align:center; margin:12px 0; color:var(--gold); letter-spacing:8px; font-size:.9rem; }
 </style>
 """, unsafe_allow_html=True)
 
+
 # ============================================================================
-# FUNCIONES AUXILIARES
+# HELPERS
 # ============================================================================
 
-def get_items_for_job(job_key: str) -> dict:
-    """Obtiene los items de recompensa para un job específico"""
-    return ITEMS_RECOMPENSA.get(job_key, {})
-
-def get_ingredientes_for_job(job_key: str) -> dict:
-    """Obtiene los ingredientes disponibles para un job (comunes + específicos)"""
-    ingredientes = ITEMS_INGREDIENTES.get('comunes', {}).copy()
-    ingredientes.update(ITEMS_INGREDIENTES.get(job_key, {}))
-    return ingredientes
-
-def is_weapon_item(item_id: str) -> bool:
-    """Verifica si un item es un arma"""
-    return item_id.startswith('weapon_')
-
-def filter_items(items_dict: dict, search_term: str) -> dict:
-    """Filtra items por término de búsqueda"""
+def filter_items(items_dict, search_term):
     if not search_term:
         return items_dict
-    search_lower = search_term.lower()
-    return {k: v for k, v in items_dict.items() 
-            if search_lower in k.lower() or search_lower in v.lower()}
+    s = search_term.lower()
+    return {k: v for k, v in items_dict.items() if s in k.lower() or s in v.lower()}
+
+
+def get_all_configs_with_counts():
+    """Devuelve dict {key: n_crafteos} para todos los configs disponibles."""
+    result = {}
+    for key in get_available_configs():
+        content = get_config_file_content(key)
+        n = len(parse_crafting_blocks(content)) if content else 0
+        result[key] = n
+    return result
+
 
 # ============================================================================
-# INICIALIZACIÓN DE SESSION STATE
+# SESSION STATE
 # ============================================================================
-if 'ingredientes' not in st.session_state:
-    st.session_state.ingredientes = []
-
-if 'recompensas' not in st.session_state:
-    st.session_state.recompensas = []
-
-if 'job_seleccionado' not in st.session_state:
-    st.session_state.job_seleccionado = None
-
-if 'search_recompensa' not in st.session_state:
-    st.session_state.search_recompensa = ""
-
-if 'search_ingrediente' not in st.session_state:
-    st.session_state.search_ingrediente = ""
-
-# Estado para modo edición
-if 'modo_edicion' not in st.session_state:
-    st.session_state.modo_edicion = False
-
-if 'crafteo_editando' not in st.session_state:
-    st.session_state.crafteo_editando = None
-
-if 'nombre_original' not in st.session_state:
-    st.session_state.nombre_original = None
-
-if 'page' not in st.session_state:
-    st.session_state.page = "generador"
+defaults = {
+    'ingredientes': [], 'recompensas': [], 'selected_config': None,
+    'modo_edicion': False, 'nombre_original': None, 'crafteo_editando': None,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # ============================================================================
-# HEADER PRINCIPAL
+# HEADER
 # ============================================================================
 st.markdown("""
-<div class="main-header animate-in">
+<div class="main-header">
     <h1>⚒️ CRAFTSMAN'S FORGE</h1>
-    <p>~ VORP Crafting System ~ Herramienta de Configuración para La Hermandad ~</p>
+    <p>~ Gestor de Configs VORP Crafting — La Hermandad ~</p>
 </div>
-<div class="western-divider">✦ ✦ ✦</div>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SIDEBAR - INFORMACIÓN Y ESTADÍSTICAS
+# SIDEBAR
 # ============================================================================
 with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; padding: 10px 0 20px 0;">
-        <span style="font-family: 'Rye', cursive; font-size: 1.5rem; color: #c9a227;">⭐ REGISTRO ⭐</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Estado de Google Drive
+    st.markdown('<div style="text-align:center; padding:5px 0 15px"><span style="font-family:Rye,cursive; font-size:1.3rem; color:#c9a227;">⭐ REGISTRO ⭐</span></div>', unsafe_allow_html=True)
+
+    # Drive status
     if st.session_state.drive_connected:
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #1a3a1a 0%, #0d260d 100%); border: 1px solid #2a7a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 15px; text-align: center;">
-            <span style="font-size: 1.1rem;">☁️</span>
-            <span style="color: #4CAF50; font-weight: bold; font-size: 0.85rem;"> Google Drive Conectado</span>
-            <br><span style="color: #888; font-size: 0.7rem;">Los cambios se guardan directamente</span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.success("☁️ Google Drive conectado")
     else:
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #3a1a1a 0%, #260d0d 100%); border: 1px solid #7a2a2a; border-radius: 8px; padding: 10px 15px; margin-bottom: 15px; text-align: center;">
-            <span style="font-size: 1.1rem;">⚠️</span>
-            <span style="color: #ff6b6b; font-weight: bold; font-size: 0.85rem;"> Drive Desconectado</span>
-            <br><span style="color: #888; font-size: 0.7rem;">Modo local - descarga manual</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Mostrar error y diagnóstico detallado
+        st.error("⚠️ Drive desconectado — Modo local")
         if st.session_state.get('drive_error'):
-            with st.expander("🔍 Ver diagnóstico completo", expanded=True):
+            with st.expander("Ver diagnóstico"):
                 st.code(st.session_state.drive_error, language="text")
-                if st.session_state.get('drive_debug'):
-                    st.markdown("**Debug info:**")
-                    st.code(st.session_state.drive_debug, language="text")
-        
-        # Botón para reintentar conexión
-        if st.button("🔄 Reintentar conexión Drive", use_container_width=True, key="retry_drive"):
-            drive_manager.reset_service() if _drive_available else None
+        if st.button("🔄 Reintentar conexión", use_container_width=True, key="retry_drive"):
+            if _drive_available:
+                drive_manager.reset_service()
             st.session_state._retry_drive = True
             st.rerun()
-    
-    # Navegación de páginas
-    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-    
-    page_options = {"generador": "⚒️ Generador de Crafteos", "gestion": "📂 Gestión de Archivos"}
-    page = st.radio(
-        "Navegación",
-        options=list(page_options.keys()),
-        format_func=lambda x: page_options[x],
-        key="page_nav",
-        label_visibility="collapsed"
-    )
-    st.session_state.page = page
-    
-    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-    
+
+    st.markdown('<div class="divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
+
     # Stats
-    st.markdown(f"""
-    <div class="sidebar-stat">
-        <div class="sidebar-stat-number">{len(ALL_ITEMS):,}</div>
-        <div class="sidebar-stat-label">📦 Objetos en Almacén</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <div class="sidebar-stat">
-        <div class="sidebar-stat-number">{len(JOBS)}</div>
-        <div class="sidebar-stat-label">🏪 Oficios Registrados</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_stat1, col_stat2 = st.columns(2)
-    with col_stat1:
-        st.markdown(f"""
-        <div class="sidebar-stat">
-            <div class="sidebar-stat-number">{len(st.session_state.recompensas)}</div>
-            <div class="sidebar-stat-label">🎁 Productos</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col_stat2:
-        st.markdown(f"""
-        <div class="sidebar-stat">
-            <div class="sidebar-stat-number">{len(st.session_state.ingredientes)}</div>
-            <div class="sidebar-stat-label">🧰 Materiales</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-    
-    # Jobs disponibles con badges
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 15px;">
-        <span style="font-family: 'Cinzel', serif; font-size: 1rem; color: #c9a227; text-transform: uppercase; letter-spacing: 2px;">Oficios Disponibles</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    jobs_html = ""
-    for job_key, job_data in JOBS.items():
-        jobs_html += f'<span class="job-badge">{job_data["nombre"]}</span>'
-    
-    st.markdown(f'<div style="line-height: 2.5;">{jobs_html}</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="western-divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-    
-    # Tips
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 15px;">
-        <span style="font-family: 'Cinzel', serif; font-size: 1rem; color: #c9a227; text-transform: uppercase; letter-spacing: 2px;">📜 Consejos del Viejo Oeste</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="info-tip">
-        <strong>🔍 Búsqueda:</strong> El campo de búsqueda te permite encontrar entre más de 1000 objetos del territorio.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="info-tip">
-        <strong>📦 Materiales:</strong> Un mismo material puede añadirse varias veces con diferentes cantidades.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="rdr-footer">
-        "En el Oeste, los artesanos forjan su destino"<br>
-        <small>~ La Hermandad ~</small>
-    </div>
-    """, unsafe_allow_html=True)
+    config_keys = get_available_configs()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f'<div class="stat-box"><div class="num">{len(ALL_ITEMS):,}</div><div class="lbl">Items</div></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="stat-box"><div class="num">{len(config_keys)}</div><div class="lbl">Configs</div></div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
+
+    # Jobs conocidos
+    st.markdown('<div style="text-align:center"><span style="font-family:Cinzel,serif;font-size:.85rem;color:#c9a227;text-transform:uppercase;letter-spacing:2px">Oficios Disponibles</span></div>', unsafe_allow_html=True)
+    badges = " ".join(
+        f'<span style="display:inline-block;padding:4px 8px;margin:2px;background:rgba(74,55,40,.9);border:1px solid #8b6914;color:#c9a227;font-family:Cinzel,serif;font-size:.7rem;border-radius:2px;text-transform:uppercase;letter-spacing:1px">{get_job_display_name(k)}</span>'
+        for k in config_keys
+    )
+    st.markdown(f'<div style="line-height:2.2;margin:8px 0">{badges}</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;font-family:IM Fell English,serif;color:#d4c5a9;font-style:italic;padding:8px;font-size:.85rem">"En el Oeste, los artesanos forjan su destino"<br><small>~ La Hermandad ~</small></div>', unsafe_allow_html=True)
+
 
 # ============================================================================
-# PÁGINA: GESTIÓN DE ARCHIVOS DRIVE
+# TABS PRINCIPALES
 # ============================================================================
-if st.session_state.page == "gestion":
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 25px;">
-        <span style="font-family: 'Rye', cursive; font-size: 1.8rem; color: #c9a227;">📂 GESTIÓN DE ARCHIVOS</span>
-        <p style="font-family: 'IM Fell English', serif; color: #d4c5a9; font-style: italic;">Administra los archivos de configuración en Google Drive</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if not st.session_state.drive_connected:
-        st.error("❌ No hay conexión con Google Drive. Esta sección requiere conexión activa.")
-        st.info("💡 Configura las credenciales de Google Drive en los secrets de Streamlit para habilitar esta función.")
+tab_recetas, tab_nueva, tab_config, tab_editor = st.tabs([
+    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config", "✏️ Editor Lua"
+])
+
+
+# ============================================================================
+# TAB 1: GESTIONAR RECETAS
+# ============================================================================
+with tab_recetas:
+    if not config_keys:
+        st.warning("No se encontraron archivos de configuración. Crea uno en la pestaña **Nuevo Config**.")
     else:
-        # Botón de refrescar caché
-        col_refresh, col_spacer = st.columns([1, 3])
+        col_sel, col_refresh = st.columns([4, 1])
+        with col_sel:
+            sel_config = st.selectbox(
+                "Seleccionar Config",
+                options=config_keys,
+                format_func=lambda x: f"📄 config_{x}.lua — {get_job_display_name(x)}",
+                key="tab1_config_select",
+            )
         with col_refresh:
-            if st.button("🔄 Refrescar archivos", use_container_width=True, key="refresh_drive_files"):
-                drive_manager.clear_cache()
+            st.write("")
+            st.write("")
+            if st.button("🔄", key="refresh_configs", help="Refrescar archivos"):
+                if _drive_available and st.session_state.drive_connected:
+                    drive_manager.clear_cache()
                 st.rerun()
-        
-        # Obtener archivos disponibles
-        from lua_crafteo_generator import get_available_configs, get_config_file_content, parse_crafting_blocks, parse_commented_blocks, save_config_file, delete_crafting_from_config, comment_crafting_in_config, uncomment_crafting_in_config
-        
-        config_keys = get_available_configs()
-        
-        if not config_keys:
-            st.warning("📭 No se encontraron archivos de configuración en Drive.")
+
+        content = get_config_file_content(sel_config)
+        if not content:
+            st.error(f"No se pudo leer config_{sel_config}.lua")
         else:
-            # Layout: lista de archivos + editor
-            col_file_list, col_file_content = st.columns([1, 3], gap="large")
-            
-            with col_file_list:
-                st.markdown("""
-                <div class="section-card">
-                    <div class="section-title">📁 Archivos</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                archivo_sel = st.radio(
-                    "Selecciona un archivo",
-                    options=config_keys,
-                    format_func=lambda x: f"📄 config_{x}.lua",
-                    key="drive_file_select",
-                    label_visibility="collapsed"
-                )
-                
-                # Info del archivo seleccionado
-                content = get_config_file_content(archivo_sel)
-                if content:
-                    crafteos_activos = parse_crafting_blocks(content)
-                    crafteos_comentados = parse_commented_blocks(content)
-                    n_lines = content.count('\n') + 1
-                    
-                    st.markdown(f"""
-                    <div style="background: rgba(74, 55, 40, 0.6); border: 1px solid #654321; border-radius: 4px; padding: 12px; margin-top: 10px;">
-                        <div style="color: #c9a227; font-family: 'Cinzel', serif; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 8px;">Info del archivo</div>
-                        <div style="color: #d4c5a9; font-size: 0.85rem;">✅ Activos: <strong>{len(crafteos_activos)}</strong></div>
-                        <div style="color: #d4c5a9; font-size: 0.85rem;">🚫 Desactivados: <strong>{len(crafteos_comentados)}</strong></div>
-                        <div style="color: #d4c5a9; font-size: 0.85rem;">📝 Líneas: <strong>{n_lines}</strong></div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            with col_file_content:
-                if content:
-                    tab_crafteos, tab_editor = st.tabs(["📋 Crafteos", "✏️ Editor Lua"])
-                    
-                    # ===== TAB: CRAFTEOS =====
-                    with tab_crafteos:
-                        st.markdown("""
-                        <div class="section-card">
-                            <div class="section-title">📋 Crafteos del Archivo</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # --- Crafteos activos ---
-                        if crafteos_activos:
-                            st.markdown(f"**✅ Crafteos Activos ({len(crafteos_activos)})**")
-                            
-                            for idx, craft in enumerate(crafteos_activos):
-                                nombre_c = craft.get('nombre', 'Sin nombre')
-                                desc_c = craft.get('descripcion', '')
-                                cat_c = craft.get('categoria', '')
-                                nivel_c = craft.get('nivel_minimo', 0)
-                                n_ing = len(craft.get('ingredientes', []))
-                                n_rew = len(craft.get('recompensas', []))
-                                
-                                with st.expander(f"⚒️ {nombre_c}", expanded=False):
-                                    # Info del crafteo
-                                    col_info, col_actions = st.columns([3, 1])
-                                    
-                                    with col_info:
-                                        st.markdown(f"""
-                                        <div style="background: rgba(74, 55, 40, 0.4); padding: 12px; border-radius: 4px; border-left: 3px solid #c9a227;">
-                                            <div style="color: #d4c5a9;"><strong>Descripción:</strong> {desc_c or 'Sin descripción'}</div>
-                                            <div style="color: #d4c5a9;"><strong>Categoría:</strong> {cat_c}</div>
-                                            <div style="color: #d4c5a9;"><strong>Nivel mínimo:</strong> {nivel_c}</div>
-                                            <div style="color: #d4c5a9;"><strong>Ingredientes:</strong> {n_ing} | <strong>Recompensas:</strong> {n_rew}</div>
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                        
-                                        # Detalle de ingredientes
-                                        if craft.get('ingredientes'):
-                                            st.markdown("**Ingredientes:**")
-                                            for ing in craft['ingredientes']:
-                                                ing_name = ing.get('name', '?')
-                                                ing_label = ALL_ITEMS.get(ing_name, ing_name)
-                                                ing_count = ing.get('count', 1)
-                                                st.markdown(f"- `{ing_label}` ({ing_name}) x{ing_count}")
-                                        
-                                        # Detalle de recompensas
-                                        if craft.get('recompensas'):
-                                            st.markdown("**Recompensas:**")
-                                            for rew in craft['recompensas']:
-                                                rew_name = rew.get('name', '?')
-                                                rew_label = ALL_ITEMS.get(rew_name, rew_name)
-                                                rew_count = rew.get('count', 1)
-                                                st.markdown(f"- 🎁 `{rew_label}` ({rew_name}) x{rew_count}")
-                                    
-                                    with col_actions:
-                                        st.markdown("**Acciones:**")
-                                        
-                                        # Desactivar crafteo
-                                        if st.button("🚫 Desactivar", key=f"disable_{archivo_sel}_{idx}", use_container_width=True):
-                                            config_desactivado = comment_crafting_in_config(archivo_sel, nombre_c)
-                                            if config_desactivado:
-                                                if save_config_file(archivo_sel, config_desactivado):
-                                                    st.success(f"✅ '{nombre_c}' desactivado")
-                                                    drive_manager.clear_cache()
-                                                    st.rerun()
-                                                else:
-                                                    st.error("❌ Error al guardar")
-                                        
-                                        # Eliminar crafteo
-                                        if st.button("🗑️ Eliminar", key=f"delete_{archivo_sel}_{idx}", use_container_width=True, type="secondary"):
-                                            st.session_state[f"confirm_delete_{archivo_sel}_{idx}"] = True
-                                        
-                                        # Confirmación de eliminación
-                                        if st.session_state.get(f"confirm_delete_{archivo_sel}_{idx}", False):
-                                            st.warning("⚠️ ¿Seguro?")
-                                            col_yes, col_no = st.columns(2)
-                                            with col_yes:
-                                                if st.button("✅ Sí", key=f"confirm_yes_{archivo_sel}_{idx}", use_container_width=True):
-                                                    config_eliminado = delete_crafting_from_config(archivo_sel, nombre_c)
-                                                    if config_eliminado:
-                                                        if save_config_file(archivo_sel, config_eliminado):
-                                                            st.success(f"✅ '{nombre_c}' eliminado")
-                                                            drive_manager.clear_cache()
-                                                            del st.session_state[f"confirm_delete_{archivo_sel}_{idx}"]
-                                                            st.rerun()
-                                                        else:
-                                                            st.error("❌ Error al guardar")
-                                            with col_no:
-                                                if st.button("❌ No", key=f"confirm_no_{archivo_sel}_{idx}", use_container_width=True):
-                                                    del st.session_state[f"confirm_delete_{archivo_sel}_{idx}"]
-                                                    st.rerun()
-                                    
-                                    # Código Lua raw del crafteo
-                                    with st.expander("🔍 Ver código Lua", expanded=False):
-                                        st.code(craft.get('_raw_block', ''), language="lua")
-                        else:
-                            st.info("No hay crafteos activos en este archivo.")
-                        
-                        st.markdown("---")
-                        
-                        # --- Crafteos desactivados ---
-                        if crafteos_comentados:
-                            st.markdown(f"**🚫 Crafteos Desactivados ({len(crafteos_comentados)})**")
-                            
-                            for idx_d, bloque_d in enumerate(crafteos_comentados):
-                                nombre_d = bloque_d.get('nombre', 'Sin nombre')
-                                desc_d = bloque_d.get('descripcion', '')
-                                
-                                col_dis_info, col_dis_action = st.columns([4, 1])
-                                
-                                with col_dis_info:
-                                    st.markdown(f"""
-                                    <div class="ingredient-box" style="border-left-color: #ff4444; opacity: 0.7;">
-                                        <div class="ingredient-info">
-                                            <span class="ingredient-icon">🚫</span>
-                                            <div>
-                                                <div class="ingredient-name">{nombre_d}</div>
-                                                <div class="ingredient-id">{desc_d}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                
-                                with col_dis_action:
-                                    if st.button("✅ Reactivar", key=f"reactivar_gestion_{archivo_sel}_{idx_d}", use_container_width=True):
-                                        config_reactivado = uncomment_crafting_in_config(archivo_sel, nombre_d)
-                                        if config_reactivado:
-                                            if save_config_file(archivo_sel, config_reactivado):
-                                                st.success(f"✅ '{nombre_d}' reactivado")
-                                                drive_manager.clear_cache()
-                                                st.rerun()
-                                            else:
-                                                st.error("❌ Error al guardar")
-                        elif not crafteos_activos:
-                            st.warning("Este archivo no contiene crafteos reconocibles.")
-                    
-                    # ===== TAB: EDITOR LUA =====
-                    with tab_editor:
-                        st.markdown("""
-                        <div class="section-card">
-                            <div class="section-title">✏️ Editor de Código Lua</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        st.markdown("""
-                        <div class="info-tip">
-                            <strong>⚠️ Avanzado:</strong> Edita directamente el código Lua del archivo. 
-                            Los cambios se aplicarán tal cual al guardar. Usa con precaución.
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # Editor de texto
-                        edited_content = st.text_area(
-                            "Código Lua",
-                            value=content,
-                            height=500,
-                            key=f"lua_editor_{archivo_sel}",
-                            label_visibility="collapsed"
-                        )
-                        
-                        # Detectar cambios
-                        has_changes = (edited_content != content)
-                        
-                        col_save, col_revert, col_download = st.columns([2, 1, 1])
-                        
-                        with col_save:
-                            save_disabled = not has_changes
-                            if st.button(
-                                "☁️ Guardar cambios en Drive" if has_changes else "✅ Sin cambios",
-                                use_container_width=True,
-                                type="primary",
-                                disabled=save_disabled,
-                                key=f"save_editor_{archivo_sel}"
-                            ):
-                                if save_config_file(archivo_sel, edited_content):
-                                    st.success(f"✅ config_{archivo_sel}.lua guardado en Drive")
-                                    drive_manager.clear_cache()
+            crafteos = parse_crafting_blocks(content)
+            comentados = parse_commented_blocks(content)
+
+            # Resumen rápido
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Recetas activas", len(crafteos))
+            c2.metric("Desactivadas", len(comentados))
+            c3.metric("Líneas", content.count('\n') + 1)
+
+            # --- Crafteos activos ---
+            if crafteos:
+                st.markdown(f"**Recetas activas ({len(crafteos)})**")
+                for idx, craft in enumerate(crafteos):
+                    nombre_c = craft.get('nombre', 'Sin nombre')
+                    desc_c = craft.get('descripcion', '')
+                    cat_c = craft.get('categoria', '')
+                    pack_c = craft.get('pack', '')
+                    n_ing = len(craft.get('ingredientes', []))
+                    n_rew = len(craft.get('recompensas', []))
+                    nivel_c = craft.get('nivel_minimo', 0)
+
+                    label = f"⚒️ {nombre_c}"
+                    if pack_c:
+                        label += f"  [Pack: {pack_c}]"
+
+                    with st.expander(label, expanded=False):
+                        col_info, col_act = st.columns([3, 1])
+                        with col_info:
+                            st.markdown(f"""
+                            <div class="card" style="padding:12px">
+                                <b>Descripción:</b> {desc_c or '—'}<br>
+                                <b>Categoría:</b> {cat_c} &nbsp;|&nbsp; <b>Nivel:</b> {nivel_c}<br>
+                                <b>Ingredientes:</b> {n_ing} &nbsp;|&nbsp; <b>Recompensas:</b> {n_rew}
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            if craft.get('ingredientes'):
+                                for ing in craft['ingredientes']:
+                                    lbl = ALL_ITEMS.get(ing.get('name', ''), ing.get('name', ''))
+                                    st.markdown(f'<div class="item-row"><div><span class="name">{lbl}</span> <span class="id">({ing.get("name", "")})</span></div><span class="count">x{ing.get("count", 1)}</span></div>', unsafe_allow_html=True)
+
+                            if craft.get('recompensas'):
+                                for rew in craft['recompensas']:
+                                    lbl = ALL_ITEMS.get(rew.get('name', ''), rew.get('name', ''))
+                                    st.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {lbl}</span> <span class="id">({rew.get("name", "")})</span></div><span class="count" style="background:#00d26a">x{rew.get("count", 1)}</span></div>', unsafe_allow_html=True)
+
+                        with col_act:
+                            # Desactivar
+                            if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{idx}", use_container_width=True):
+                                new_content = comment_crafting_in_config(sel_config, nombre_c)
+                                if new_content and save_config_file(sel_config, new_content):
+                                    st.success(f"'{nombre_c}' desactivado")
+                                    if _drive_available and st.session_state.drive_connected:
+                                        drive_manager.clear_cache()
                                     st.rerun()
                                 else:
-                                    st.error("❌ Error al guardar en Drive")
-                        
-                        with col_revert:
-                            if st.button("↩️ Revertir", use_container_width=True, disabled=not has_changes, key=f"revert_{archivo_sel}"):
-                                st.rerun()
-                        
-                        with col_download:
-                            st.download_button(
-                                label="📥 Descargar",
-                                data=edited_content,
-                                file_name=f"config_{archivo_sel}.lua",
-                                mime="text/plain",
-                                use_container_width=True,
-                                key=f"download_editor_{archivo_sel}"
-                            )
-                        
-                        if has_changes:
-                            st.warning("⚠️ Hay cambios sin guardar en el editor.")
-                else:
-                    st.error(f"❌ No se pudo leer el contenido de config_{archivo_sel}.lua")
-    
-    st.stop()
+                                    st.error("Error al desactivar")
 
-# ============================================================================
-# LAYOUT PRINCIPAL
-# ============================================================================
-col_form, col_output = st.columns([1, 1], gap="large")
+                            # Eliminar con confirmación
+                            if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{idx}", use_container_width=True):
+                                st.session_state[f"_confirm_del_{sel_config}_{idx}"] = True
 
-# ============================================================================
-# COLUMNA IZQUIERDA - FORMULARIO
-# ============================================================================
-with col_form:
-    st.markdown("""
-    <div style="text-align: center; margin-bottom: 20px;">
-        <span style="font-family: 'Rye', cursive; font-size: 1.8rem; color: #c9a227;">📝 RECETA DE CRAFTEO</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # ----- PASO 1: SELECCIONAR JOB -----
-    st.markdown("""
-    <div class="section-card">
-        <div class="section-title">🏷️ Seleccionar Oficio</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    job_options = {k: v['nombre'] for k, v in JOBS.items()}
-    job_seleccionado = st.selectbox(
-        "Selecciona la categoría/job",
-        options=list(job_options.keys()),
-        format_func=lambda x: job_options[x],
-        key="job_select",
-        help="Selecciona la facción para la que es este crafteo"
-    )
-    
-    # Detectar cambio de job para limpiar ingredientes y recompensas
-    if st.session_state.job_seleccionado != job_seleccionado:
-        st.session_state.job_seleccionado = job_seleccionado
-        st.session_state.ingredientes = []
-        st.session_state.recompensas = []
-        st.session_state.modo_edicion = False
-        st.session_state.crafteo_editando = None
-        st.session_state.nombre_original = None
-    
-    job_data = JOBS[job_seleccionado]
-    
-    # ----- MODO: CREAR / EDITAR -----
-    st.markdown("""
-    <div class="section-card">
-        <div class="section-title">🔧 Modo de Trabajo</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    modo = st.radio(
-        "¿Qué deseas hacer?",
-        options=["crear", "editar"],
-        format_func=lambda x: "✨ Crear nuevo crafteo" if x == "crear" else "✏️ Editar crafteo existente",
-        horizontal=True,
-        key="modo_trabajo"
-    )
-    
-    # Si cambia de modo, limpiar estado
-    nuevo_modo_edicion = (modo == "editar")
-    if nuevo_modo_edicion != st.session_state.modo_edicion:
-        st.session_state.modo_edicion = nuevo_modo_edicion
-        st.session_state.ingredientes = []
-        st.session_state.recompensas = []
-        st.session_state.crafteo_editando = None
-        st.session_state.nombre_original = None
-    
-    # Variables por defecto para campos del formulario
-    default_nombre = ""
-    default_nivel = 0
-    default_tipo = "item"
-    default_categoria_idx = None
-    default_take_items = True
-    default_use_currency = False
-    default_currency_type = 0
-    default_location = 0
-    default_animation = "craft"
-    default_pack = ""
-    
-    # Si estamos en modo edición, cargar crafteos existentes
-    if st.session_state.modo_edicion:
-        existing_config = get_config_file_content(job_seleccionado)
-        if existing_config:
-            crafteos_existentes = parse_crafting_blocks(existing_config)
-            
-            if crafteos_existentes:
-                nombres_crafteos = [c.get('nombre', '???') for c in crafteos_existentes]
-                
-                crafteo_selected = st.selectbox(
-                    "📋 Selecciona el crafteo a editar",
-                    options=range(len(nombres_crafteos)),
-                    format_func=lambda i: nombres_crafteos[i],
-                    key="crafteo_editar_select"
-                )
-                
-                crafteo_data = crafteos_existentes[crafteo_selected]
-                
-                # Detectar si cambió la selección del crafteo
-                nombre_sel = crafteo_data.get('nombre', '')
-                if st.session_state.nombre_original != nombre_sel:
-                    st.session_state.nombre_original = nombre_sel
-                    st.session_state.crafteo_editando = crafteo_data
-                    
-                    # Cargar ingredientes
-                    ingredientes_cargados = []
-                    for ing in crafteo_data.get('ingredientes', []):
-                        ingredientes_cargados.append({
-                            'name': ing.get('name', ''),
-                            'label': ALL_ITEMS.get(ing.get('name', ''), ing.get('name', '')),
-                            'count': ing.get('count', 1)
-                        })
-                    st.session_state.ingredientes = ingredientes_cargados
-                    
-                    # Cargar recompensas
-                    recompensas_cargadas = []
-                    for rew in crafteo_data.get('recompensas', []):
-                        recompensas_cargadas.append({
-                            'name': rew.get('name', ''),
-                            'label': ALL_ITEMS.get(rew.get('name', ''), rew.get('name', '')),
-                            'count': rew.get('count', 1)
-                        })
-                    st.session_state.recompensas = recompensas_cargadas
-                    
-                    st.rerun()
-                
-                # Cargar defaults del crafteo seleccionado
-                default_nombre = crafteo_data.get('nombre', '')
-                default_nivel = crafteo_data.get('nivel_minimo', 0)
-                default_tipo = crafteo_data.get('tipo', 'item')
-                default_take_items = crafteo_data.get('take_items', True)
-                default_use_currency = crafteo_data.get('use_currency', False)
-                default_currency_type = crafteo_data.get('currency_type', 0)
-                default_location = crafteo_data.get('location', 0)
-                default_animation = crafteo_data.get('animation', 'craft')
-                default_pack = crafteo_data.get('pack', '')
-                
-                # Determinar categoría por defecto del crafteo cargado
-                loaded_cat = crafteo_data.get('categoria', '')
-                category_keys_temp = list(CATEGORIAS_CRAFTEO.keys())
-                if loaded_cat in category_keys_temp:
-                    default_categoria_idx = category_keys_temp.index(loaded_cat)
-                
-                st.success(f"📝 Editando: **{default_nombre}**")
-            else:
-                st.warning("⚠️ No se encontraron crafteos en este archivo de configuración")
-                st.session_state.modo_edicion = False
-        else:
-            st.warning(f"⚠️ No existe el archivo `config_{job_seleccionado}.lua`")
-            st.session_state.modo_edicion = False
-    
-    # Categoría del crafteo (puede ser diferente al job del config)
-    st.markdown("""
-    <div class="info-tip">
-        <strong>Categoría del crafteo:</strong> Define en qué menú aparecerá este crafteo para el jugador.
-        Por defecto coincide con el oficio, pero puedes cambiarlo.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Obtener el índice por defecto basado en el job seleccionado o el crafteo cargado
-    if default_categoria_idx is not None:
-        cat_default_index = default_categoria_idx
-    else:
-        default_category = job_data['category']
-        category_keys = list(CATEGORIAS_CRAFTEO.keys())
-        cat_default_index = category_keys.index(default_category) if default_category in category_keys else 0
-    
-    category_keys = list(CATEGORIAS_CRAFTEO.keys())
-    
-    categoria_crafteo = st.selectbox(
-        "Categoría del Crafteo",
-        options=category_keys,
-        index=cat_default_index,
-        format_func=lambda x: CATEGORIAS_CRAFTEO[x],
-        help="En qué categoría aparecerá este crafteo en el menú del jugador"
-    )
-    
-    # ----- PASO 2: INFORMACIÓN BÁSICA -----
-    st.markdown("""
-    <div class="section-card">
-        <div class="section-title">✏️ Detalles del Producto</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_info1, col_info2 = st.columns([2, 1])
-    
-    with col_info1:
-        nombre = st.text_input(
-            "Nombre del Crafteo *",
-            value=default_nombre,
-            placeholder="Ej: Munición de pistola",
-            help="Nombre que verá el jugador en el menú"
-        )
-    
-    with col_info2:
-        nivel_minimo = st.number_input(
-            "Nivel Mínimo",
-            min_value=0,
-            max_value=100,
-            value=default_nivel,
-            help="Nivel requerido para craftear"
-        )
-    
-    # Tipo de crafteo
-    if job_seleccionado in ['armero', 'bandas']:
-        tipo_options = {'item': '📦 Item Normal', 'weapon': '🔫 Arma'}
-    else:
-        tipo_options = {'item': '📦 Item Normal'}
-    
-    tipo_keys = list(tipo_options.keys())
-    tipo_default_idx = tipo_keys.index(default_tipo) if default_tipo in tipo_keys else 0
-    
-    tipo = st.selectbox(
-        "Tipo de Crafteo",
-        options=tipo_keys,
-        index=tipo_default_idx,
-        format_func=lambda x: tipo_options[x],
-        help="Tipo de item que se craftea"
-    )
-    
-    # ----- PASO 3: RECOMPENSAS -----
-    st.markdown("""
-    <div class="section-card">
-        <div class="section-title">🎁 Productos a Fabricar</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    items_disponibles = get_items_for_job(job_seleccionado)
-    
-    # Filtrar según tipo
-    if tipo == 'weapon':
-        items_filtrados = {k: v for k, v in items_disponibles.items() if is_weapon_item(k)}
-    else:
-        items_filtrados = {k: v for k, v in items_disponibles.items() if not is_weapon_item(k)}
-    
-    if not items_filtrados:
-        items_filtrados = items_disponibles
-    
-    # Búsqueda de recompensa
-    col_search_rew, col_manual_rew = st.columns([3, 1])
-    
-    with col_search_rew:
-        search_recompensa = st.text_input(
-            "🔍 Buscar item de recompensa",
-            placeholder="Escribe para filtrar...",
-            key="search_rew_input"
-        )
-    
-    with col_manual_rew:
-        usar_item_manual = st.checkbox("ID manual", key="manual_reward")
-    
-    # Filtrar items
-    items_filtrados_search = filter_items(items_filtrados, search_recompensa)
-    
-    col_rew1, col_rew2, col_rew3 = st.columns([3, 1, 1])
-    
-    with col_rew1:
-        if usar_item_manual:
-            nueva_recompensa = st.text_input(
-                "ID del Item",
-                placeholder="Ej: weapon_revolver_cattleman",
-                key="manual_rew_input"
-            )
-            nueva_recompensa_label = nueva_recompensa
-        else:
-            # Mostrar cantidad de items filtrados
-            if search_recompensa:
-                st.caption(f"📋 {len(items_filtrados_search)} items encontrados")
-            
-            nueva_recompensa = st.selectbox(
-                "Item de Recompensa",
-                options=[""] + list(items_filtrados_search.keys()),
-                format_func=lambda x: f"{items_filtrados_search[x]} ({x})" if x else "-- Seleccionar item --",
-                help="Item que recibirá el jugador",
-                key="new_rew_select"
-            )
-            nueva_recompensa_label = items_filtrados_search.get(nueva_recompensa, nueva_recompensa)
-    
-    with col_rew2:
-        cantidad_recompensa = st.number_input(
-            "Cantidad",
-            min_value=1,
-            max_value=999,
-            value=1,
-            key="cant_rew"
-        )
-    
-    with col_rew3:
-        st.write("")
-        st.write("")
-        if st.button("➕ Añadir", use_container_width=True, type="primary", key="add_reward"):
-            if nueva_recompensa:
-                st.session_state.recompensas.append({
-                    'name': nueva_recompensa,
-                    'label': nueva_recompensa_label,
-                    'count': cantidad_recompensa
-                })
-                st.rerun()
-            else:
-                st.error("⚠️ Selecciona un item de recompensa")
-    
-    # Mostrar recompensas añadidas
-    if st.session_state.recompensas:
-        st.markdown(f"**Recompensas añadidas ({len(st.session_state.recompensas)}):**")
-        
-        for idx, rew in enumerate(st.session_state.recompensas):
-            col_list1, col_list2 = st.columns([5, 1])
-            with col_list1:
-                st.markdown(f"""
-                <div class="ingredient-box" style="border-left-color: #00d26a;">
-                    <div class="ingredient-info">
-                        <span class="ingredient-icon">🎁</span>
-                        <div>
-                            <div class="ingredient-name">{rew['label']}</div>
-                            <div class="ingredient-id">{rew['name']}</div>
-                        </div>
-                    </div>
-                    <span class="ingredient-count" style="background: #00d26a;">x{rew['count']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_list2:
-                st.write("")
-                if st.button("🗑️", key=f"del_rew_{idx}", help="Eliminar recompensa"):
-                    st.session_state.recompensas.pop(idx)
-                    st.rerun()
-        
-        col_clear_rew1, col_clear_rew2 = st.columns([1, 1])
-        with col_clear_rew2:
-            if st.button("🗑️ Limpiar recompensas", type="secondary", use_container_width=True, key="clear_rewards"):
-                st.session_state.recompensas = []
-                st.rerun()
-    else:
-        st.markdown("""
-        <div class="empty-state" style="padding: 20px;">
-            <div class="empty-state-icon">🎁</div>
-            <p>No hay recompensas añadidas</p>
-            <p style="font-size: 0.85rem;">Añade al menos un item como recompensa</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ----- PASO 4: INGREDIENTES -----
-    st.markdown("""
-    <div class="section-card">
-        <div class="section-title">🧪 Materiales Requeridos</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    ingredientes_disponibles = get_ingredientes_for_job(job_seleccionado)
-    
-    # Búsqueda de ingredientes
-    col_search_ing, col_manual_ing = st.columns([3, 1])
-    
-    with col_search_ing:
-        search_ingrediente = st.text_input(
-            "🔍 Buscar ingrediente",
-            placeholder="Escribe para filtrar...",
-            key="search_ing_input"
-        )
-    
-    with col_manual_ing:
-        usar_ing_manual = st.checkbox("ID manual", key="manual_ing")
-    
-    # Filtrar ingredientes
-    ingredientes_filtrados = filter_items(ingredientes_disponibles, search_ingrediente)
-    
-    col_ing1, col_ing2, col_ing3 = st.columns([3, 1, 1])
-    
-    with col_ing1:
-        if usar_ing_manual:
-            nuevo_ingrediente = st.text_input(
-                "ID del Ingrediente",
-                placeholder="Ej: gunpowder",
-                key="new_ing_manual"
-            )
-            nuevo_ingrediente_label = nuevo_ingrediente
-        else:
-            if search_ingrediente:
-                st.caption(f"📋 {len(ingredientes_filtrados)} items encontrados")
-            
-            nuevo_ingrediente = st.selectbox(
-                "Ingrediente",
-                options=[""] + list(ingredientes_filtrados.keys()),
-                format_func=lambda x: f"{ingredientes_filtrados[x]} ({x})" if x else "-- Seleccionar ingrediente --",
-                key="new_ing_select"
-            )
-            nuevo_ingrediente_label = ingredientes_filtrados.get(nuevo_ingrediente, nuevo_ingrediente)
-    
-    with col_ing2:
-        cantidad_ingrediente = st.number_input(
-            "Cantidad",
-            min_value=1,
-            max_value=999,
-            value=1,
-            key="cant_ing"
-        )
-    
-    with col_ing3:
-        st.write("")
-        st.write("")
-        if st.button("➕ Añadir", use_container_width=True, type="primary"):
-            if nuevo_ingrediente:
-                st.session_state.ingredientes.append({
-                    'name': nuevo_ingrediente,
-                    'label': nuevo_ingrediente_label,
-                    'count': cantidad_ingrediente
-                })
-                st.rerun()
-            else:
-                st.error("⚠️ Selecciona un ingrediente")
-    
-    # Mostrar ingredientes añadidos
-    if st.session_state.ingredientes:
-        st.markdown(f"**Ingredientes añadidos ({len(st.session_state.ingredientes)}):**")
-        
-        for idx, ing in enumerate(st.session_state.ingredientes):
-            col_list1, col_list2 = st.columns([5, 1])
-            with col_list1:
-                st.markdown(f"""
-                <div class="ingredient-box">
-                    <div class="ingredient-info">
-                        <span class="ingredient-icon">📦</span>
-                        <div>
-                            <div class="ingredient-name">{ing['label']}</div>
-                            <div class="ingredient-id">{ing['name']}</div>
-                        </div>
-                    </div>
-                    <span class="ingredient-count">x{ing['count']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_list2:
-                st.write("")
-                if st.button("🗑️", key=f"del_{idx}", help="Eliminar ingrediente"):
-                    st.session_state.ingredientes.pop(idx)
-                    st.rerun()
-        
-        col_clear1, col_clear2 = st.columns([1, 1])
-        with col_clear2:
-            if st.button("🗑️ Limpiar todos", type="secondary", use_container_width=True):
-                st.session_state.ingredientes = []
-                st.rerun()
-    else:
-        st.markdown("""
-        <div class="empty-state">
-            <div class="empty-state-icon">📭</div>
-            <p>No hay ingredientes añadidos</p>
-            <p style="font-size: 0.85rem;">Usa el selector de arriba para añadir ingredientes</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # ----- PASO 5: OPCIONES AVANZADAS -----
-    with st.expander("⚙️ Opciones Avanzadas", expanded=False):
-        col_adv1, col_adv2 = st.columns(2)
-        
-        with col_adv1:
-            take_items = st.checkbox(
-                "🔄 Consumir ingredientes",
-                value=default_take_items,
-                help="Los ingredientes se consumen al craftear"
-            )
-            
-            use_currency = st.checkbox(
-                "💰 Cobrar dinero",
-                value=default_use_currency,
-                help="Cobrar dinero además de ingredientes"
-            )
-            
-            if use_currency:
-                currency_type = st.selectbox(
-                    "Tipo de moneda",
-                    options=[0, 1],
-                    index=default_currency_type,
-                    format_func=lambda x: "💵 Cash ($)" if x == 0 else "🪙 Gold (oro)"
-                )
-            else:
-                currency_type = 0
-        
-        with col_adv2:
-            location = st.number_input(
-                "📍 Location ID",
-                min_value=0,
-                value=default_location,
-                help="ID de ubicación para el crafteo"
-            )
-            
-            anim_keys = list(ANIMACIONES.keys())
-            anim_default_idx = anim_keys.index(default_animation) if default_animation in anim_keys else 0
-            
-            animation = st.selectbox(
-                "🎬 Animación",
-                options=anim_keys,
-                index=anim_default_idx,
-                format_func=lambda x: ANIMACIONES[x]
-            )
-        
-        # Pack (opcional)
-        pack_opciones = ["", "comun", "mejicana", "afroamericana", "oriental", "inglesa", "nativo", "campero"]
-        pack_default_idx = pack_opciones.index(default_pack) if default_pack in pack_opciones else 0
-        
-        pack = st.selectbox(
-            "📦 Pack (opcional)",
-            options=pack_opciones,
-            index=pack_default_idx,
-            format_func=lambda x: "-- Sin pack --" if x == "" else x.capitalize(),
-            help="Agrupación de pack para el crafteo (usado en cocina)"
-        )
-
-# ============================================================================
-# COLUMNA DERECHA - OUTPUT
-# ============================================================================
-with col_output:
-    st.markdown("## 📤 Resultado")
-    
-    # Validaciones
-    errores = []
-    if not nombre:
-        errores.append("Nombre del crafteo")
-    if not st.session_state.recompensas:
-        errores.append("Al menos una recompensa")
-    if not st.session_state.ingredientes:
-        errores.append("Al menos un ingrediente")
-    
-    if errores:
-        st.markdown("""
-        <div class="section-card">
-            <div class="section-title" style="color: #ffc107;">⚠️ Campos Requeridos</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        for e in errores:
-            st.markdown(f"• {e}")
-        
-        st.markdown("""
-        <div class="empty-state" style="margin-top: 30px;">
-            <div class="empty-state-icon">📋</div>
-            <p>Completa todos los campos para generar el código</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        # Generar descripción automática
-        desc_parts = [f"{ing['count']}x {ing['label']}" for ing in st.session_state.ingredientes]
-        descripcion = ", ".join(desc_parts)
-        
-        # Usar la categoría seleccionada por el usuario
-        job_value = job_data['job_value']
-        
-        datos_crafteo = {
-            'nombre': nombre,
-            'descripcion': descripcion,
-            'categoria': categoria_crafteo,
-            'tipo': tipo,
-            'nivel_minimo': nivel_minimo,
-            'recompensas': st.session_state.recompensas,
-            'ingredientes': st.session_state.ingredientes,
-            'take_items': take_items,
-            'currency_type': currency_type,
-            'location': location,
-            'animation': animation,
-            'use_currency': use_currency,
-            'job': job_value,
-            'pack': pack
-        }
-        
-        codigo_lua = generate_crafting_block(datos_crafteo)
-        
-        # Generar texto de recompensas para el resumen
-        recompensas_texto = ", ".join([f"{r['count']}x {r['label']}" for r in st.session_state.recompensas])
-        
-        # Resumen visual
-        st.markdown(f"""
-        <div class="craft-summary">
-            <div class="craft-summary-title">✅ Crafteo Configurado</div>
-            <div class="summary-row">
-                <span class="summary-label">Categoría</span>
-                <span class="summary-value">{job_data['nombre']}</span>
-            </div>
-            <div class="summary-row">
-                <span class="summary-label">Nombre</span>
-                <span class="summary-value">{nombre}</span>
-            </div>
-            <div class="summary-row">
-                <span class="summary-label">Recompensas</span>
-                <span class="summary-value">{len(st.session_state.recompensas)} items</span>
-            </div>
-            <div class="summary-row">
-                <span class="summary-label">Nivel mínimo</span>
-                <span class="summary-value">{nivel_minimo}</span>
-            </div>
-            <div class="summary-row">
-                <span class="summary-label">Ingredientes</span>
-                <span class="summary-value">{len(st.session_state.ingredientes)} items</span>
-            </div>
-            <div class="summary-row" style="border: none;">
-                <span class="summary-label">Archivo destino</span>
-                <span class="summary-value" style="font-family: monospace;">config_{job_seleccionado}.lua</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Lista de recompensas
-        st.markdown("**🎁 Recompensas del crafteo:**")
-        for rew in st.session_state.recompensas:
-            st.markdown(f"- `{rew['count']}x` **{rew['label']}** (`{rew['name']}`)")
-        
-        # Lista de ingredientes
-        st.markdown("**🧪 Ingredientes del crafteo:**")
-        for ing in st.session_state.ingredientes:
-            st.markdown(f"- `{ing['count']}x` **{ing['label']}** (`{ing['name']}`)")
-        
-        st.markdown("---")
-        
-        # Código Lua
-        st.markdown("**💻 Código Lua generado:**")
-        st.code(codigo_lua, language="lua")
-        
-        # Botones de acción - Solo código
-        col_btn1, col_btn2 = st.columns(2)
-        
-        with col_btn1:
-            st.download_button(
-                label="💾 Descargar código",
-                data=codigo_lua,
-                file_name=f"crafteo_{job_seleccionado}_{nombre.lower().replace(' ', '_')}.lua",
-                mime="text/plain",
-                use_container_width=True,
-                key="download_code"
-            )
-        
-        with col_btn2:
-            if st.button("📋 Copiar al portapapeles", use_container_width=True):
-                st.toast("✅ Código copiado!", icon="📋")
-        
-        # Sección de Config Completo
-        st.markdown("---")
-        
-        # ===== MODO EDICIÓN: Guardar cambios =====
-        if st.session_state.modo_edicion and st.session_state.nombre_original:
-            st.markdown("""
-            <div class="section-card">
-                <div class="section-title">✏️ Guardar Cambios en Config</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.info(f"📝 Editando crafteo: **{st.session_state.nombre_original}** → **{nombre}**")
-            
-            config_editado = replace_crafting_in_config(
-                job_seleccionado, 
-                st.session_state.nombre_original, 
-                codigo_lua
-            )
-            
-            if config_editado:
-                if st.session_state.drive_connected:
-                    if st.button("☁️ Guardar cambios en Drive", use_container_width=True, type="primary", key="save_edit_drive"):
-                        if save_config_file(job_seleccionado, config_editado):
-                            st.success("✅ ¡Cambios guardados en Google Drive!")
-                            drive_manager.clear_cache()
-                        else:
-                            st.error("❌ Error al guardar en Drive")
-                    
-                    with st.expander("📥 Descargar archivo (alternativa)"):
-                        st.download_button(
-                            label=f"📥 Descargar config_{job_seleccionado}.lua editado",
-                            data=config_editado,
-                            file_name=f"config_{job_seleccionado}.lua",
-                            mime="text/plain",
-                            use_container_width=True,
-                            key="download_edited_config"
-                        )
-                else:
-                    st.download_button(
-                        label=f"📥 Descargar config_{job_seleccionado}.lua editado",
-                        data=config_editado,
-                        file_name=f"config_{job_seleccionado}.lua",
-                        mime="text/plain",
-                        use_container_width=True,
-                        type="primary",
-                        key="download_edited_config"
-                    )
-                
-                with st.expander("👁️ Ver preview del config editado", expanded=False):
-                    st.code(config_editado, language="lua")
-            else:
-                st.error("⚠️ No se pudo encontrar el crafteo original para reemplazar")
-            
-            # Botón para desactivar (comentar) el crafteo
-            st.markdown("---")
-            st.markdown("""
-            <div class="section-card">
-                <div class="section-title">🚫 Desactivar Crafteo</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.warning(f"⚠️ Esto comentará el crafteo **{st.session_state.nombre_original}** en el archivo Lua, desactivándolo sin borrarlo.")
-            
-            config_desactivado = comment_crafting_in_config(
-                job_seleccionado,
-                st.session_state.nombre_original
-            )
-            
-            if config_desactivado:
-                if st.session_state.drive_connected:
-                    if st.button("☁️🚫 Desactivar y guardar en Drive", use_container_width=True, key="save_disable_drive"):
-                        if save_config_file(job_seleccionado, config_desactivado):
-                            st.success(f"✅ Crafteo **{st.session_state.nombre_original}** desactivado y guardado en Drive!")
-                            drive_manager.clear_cache()
-                        else:
-                            st.error("❌ Error al guardar en Drive")
-                    
-                    with st.expander("📥 Descargar archivo (alternativa)"):
-                        st.download_button(
-                            label=f"🚫 Descargar config con crafteo desactivado",
-                            data=config_desactivado,
-                            file_name=f"config_{job_seleccionado}.lua",
-                            mime="text/plain",
-                            use_container_width=True,
-                            key="download_disabled_config"
-                        )
-                else:
-                    st.download_button(
-                        label=f"🚫 Descargar config_{job_seleccionado}.lua con crafteo desactivado",
-                        data=config_desactivado,
-                        file_name=f"config_{job_seleccionado}.lua",
-                        mime="text/plain",
-                        use_container_width=True,
-                        key="download_disabled_config"
-                    )
-        
-        # ===== MODO CREACIÓN: Añadir nuevo =====
-        else:
-            st.markdown("""
-            <div class="section-card">
-                <div class="section-title">📁 Guardar Config Completo</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Verificar si existe el archivo de config
-            existing_config = get_config_file_content(job_seleccionado)
-            
-            if existing_config:
-                # Generar el config completo con el nuevo crafteo añadido
-                config_completo = add_crafting_to_config(job_seleccionado, codigo_lua)
-                
-                # Contar crafteos existentes
-                crafteos_existentes = existing_config.count('Text = ')
-                
-                st.success(f"✅ Archivo `config_{job_seleccionado}.lua` encontrado con **{crafteos_existentes}** crafteos existentes")
-                
-                if st.session_state.drive_connected:
-                    if st.button(f"☁️ Guardar config_{job_seleccionado}.lua en Drive", use_container_width=True, type="primary", key="save_add_drive"):
-                        if save_config_file(job_seleccionado, config_completo):
-                            st.success("✅ ¡Crafteo añadido y guardado en Google Drive!")
-                            drive_manager.clear_cache()
-                        else:
-                            st.error("❌ Error al guardar en Drive")
-                    
-                    with st.expander("📥 Descargar archivo (alternativa)"):
-                        st.download_button(
-                            label=f"📥 Descargar config_{job_seleccionado}.lua completo",
-                            data=config_completo,
-                            file_name=f"config_{job_seleccionado}.lua",
-                            mime="text/plain",
-                            use_container_width=True,
-                            key="download_full_config"
-                        )
-                else:
-                    st.download_button(
-                        label=f"📥 Descargar config_{job_seleccionado}.lua completo",
-                        data=config_completo,
-                        file_name=f"config_{job_seleccionado}.lua",
-                        mime="text/plain",
-                        use_container_width=True,
-                        type="primary",
-                        key="download_full_config"
-                    )
-                
-                # Mostrar preview del config
-                with st.expander("👁️ Ver preview del config completo", expanded=False):
-                    st.code(config_completo, language="lua")
-            else:
-                st.warning(f"⚠️ No se encontró `config_{job_seleccionado}.lua`. Se creará uno nuevo.")
-                
-                # Crear config nuevo
-                config_name = job_seleccionado.capitalize()
-                if job_seleccionado == 'cocinaDulce':
-                    config_name = 'CocinaDulce'
-                elif job_seleccionado == 'cocinaMixta':
-                    config_name = 'CocinaMixta'
-                elif job_seleccionado == 'cocinaPacks':
-                    config_name = 'CocinaPacks'
-                elif job_seleccionado == 'cocinaTier1':
-                    config_name = 'CocinaTier1'
-                elif job_seleccionado == 'cocinaTier2':
-                    config_name = 'CocinaTier2'
-                elif job_seleccionado == 'cocinaTier3':
-                    config_name = 'CocinaTier3'
-                
-                nuevo_config = f"Config.{config_name} = {{{codigo_lua}\n}}"
-                
-                if st.session_state.drive_connected:
-                    if st.button(f"☁️ Crear config_{job_seleccionado}.lua en Drive", use_container_width=True, type="primary", key="save_new_drive"):
-                        if save_config_file(job_seleccionado, nuevo_config):
-                            st.success("✅ ¡Nuevo config creado y guardado en Google Drive!")
-                            drive_manager.clear_cache()
-                        else:
-                            st.error("❌ Error al guardar en Drive")
-                    
-                    with st.expander("📥 Descargar archivo (alternativa)"):
-                        st.download_button(
-                            label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
-                            data=nuevo_config,
-                            file_name=f"config_{job_seleccionado}.lua",
-                            mime="text/plain",
-                            use_container_width=True,
-                            key="download_new_config"
-                        )
-                else:
-                    st.download_button(
-                        label=f"📥 Crear y descargar config_{job_seleccionado}.lua",
-                        data=nuevo_config,
-                        file_name=f"config_{job_seleccionado}.lua",
-                        mime="text/plain",
-                        use_container_width=True,
-                        type="primary",
-                        key="download_new_config"
-                    )
-        
-        # Instrucciones
-        st.markdown("---")
-        if st.session_state.drive_connected:
-            st.markdown(f"""
-            **☁️ Instrucciones (modo Drive):**
-            
-            1. Pulsa el botón **Guardar en Drive** para aplicar los cambios
-            2. El archivo se actualiza automáticamente en la carpeta compartida
-            3. Recarga el servidor con `/refresh`
-            """)
-        else:
-            st.markdown(f"""
-            **📁 Instrucciones de instalación:**
-            
-            1. Descarga el archivo `config_{job_seleccionado}.lua` completo
-            2. Reemplaza el archivo existente en tu servidor
-            3. Recarga el servidor con `/refresh`
-            
-            **O manualmente:**
-            1. Abre el archivo `config_{job_seleccionado}.lua`
-            2. Copia el código del crafteo generado
-            3. Pégalo antes del último `}}`
-            4. Guarda y recarga
-            """)
-    
-    # ===== SECCIÓN: CRAFTEOS DESACTIVADOS =====
-    st.markdown("---")
-    
-    existing_config_for_disabled = get_config_file_content(job_seleccionado)
-    if existing_config_for_disabled:
-        bloques_comentados = parse_commented_blocks(existing_config_for_disabled)
-        
-        if bloques_comentados:
-            with st.expander(f"🚫 Crafteos Desactivados ({len(bloques_comentados)})", expanded=False):
-                st.markdown("""
-                <div class="info-tip">
-                    <strong>💡 Info:</strong> Estos crafteos están comentados en el archivo Lua y no están activos en el servidor.
-                    Puedes reactivarlos para que vuelvan a estar disponibles.
-                </div>
-                """, unsafe_allow_html=True)
-                
-                for idx_dis, bloque_dis in enumerate(bloques_comentados):
-                    nombre_dis = bloque_dis.get('nombre', 'Sin nombre')
-                    desc_dis = bloque_dis.get('descripcion', '')
-                    
-                    col_dis1, col_dis2 = st.columns([4, 1])
-                    
-                    with col_dis1:
-                        st.markdown(f"""
-                        <div class="ingredient-box" style="border-left-color: #ff4444; opacity: 0.8;">
-                            <div class="ingredient-info">
-                                <span class="ingredient-icon">🚫</span>
-                                <div>
-                                    <div class="ingredient-name">{nombre_dis}</div>
-                                    <div class="ingredient-id">{desc_dis}</div>
-                                </div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with col_dis2:
-                        config_reactivado = uncomment_crafting_in_config(
-                            job_seleccionado,
-                            nombre_dis
-                        )
-                        
-                        if config_reactivado:
-                            if st.session_state.drive_connected:
-                                if st.button(f"✅ Reactivar", use_container_width=True, key=f"reactivar_drive_{idx_dis}"):
-                                    if save_config_file(job_seleccionado, config_reactivado):
-                                        st.success(f"✅ **{nombre_dis}** reactivado y guardado en Drive!")
-                                        drive_manager.clear_cache()
+                            if st.session_state.get(f"_confirm_del_{sel_config}_{idx}"):
+                                st.warning("¿Seguro?")
+                                ca, cb = st.columns(2)
+                                with ca:
+                                    if st.button("Sí", key=f"yes_{sel_config}_{idx}", use_container_width=True):
+                                        new_content = delete_crafting_from_config(sel_config, nombre_c)
+                                        if new_content and save_config_file(sel_config, new_content):
+                                            st.success(f"'{nombre_c}' eliminado")
+                                            if _drive_available and st.session_state.drive_connected:
+                                                drive_manager.clear_cache()
+                                            del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
+                                            st.rerun()
+                                with cb:
+                                    if st.button("No", key=f"no_{sel_config}_{idx}", use_container_width=True):
+                                        del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
                                         st.rerun()
-                                    else:
-                                        st.error("❌ Error al guardar en Drive")
-                            else:
-                                st.download_button(
-                                    label="✅ Reactivar",
-                                    data=config_reactivado,
-                                    file_name=f"config_{job_seleccionado}.lua",
-                                    mime="text/plain",
-                                    use_container_width=True,
-                                    key=f"reactivar_{idx_dis}"
-                                )
+
+                        # Código raw
+                        with st.expander("🔍 Ver código Lua"):
+                            st.code(craft.get('_raw_block', ''), language="lua")
+            else:
+                st.info("No hay recetas activas en este config.")
+
+            # --- Crafteos desactivados ---
+            if comentados:
+                st.markdown("---")
+                st.markdown(f"**Recetas desactivadas ({len(comentados)})**")
+                for idx_d, bloque_d in enumerate(comentados):
+                    col_d1, col_d2 = st.columns([4, 1])
+                    with col_d1:
+                        st.markdown(f'<div class="item-row" style="border-left-color:#ff4444;opacity:.7"><div><span class="name">🚫 {bloque_d.get("nombre", "?")}</span> <span class="id">{bloque_d.get("descripcion", "")}</span></div></div>', unsafe_allow_html=True)
+                    with col_d2:
+                        if st.button("✅ Reactivar", key=f"react_{sel_config}_{idx_d}", use_container_width=True):
+                            new_content = uncomment_crafting_in_config(sel_config, bloque_d.get('nombre', ''))
+                            if new_content and save_config_file(sel_config, new_content):
+                                st.success(f"'{bloque_d.get('nombre', '')}' reactivado")
+                                if _drive_available and st.session_state.drive_connected:
+                                    drive_manager.clear_cache()
+                                st.rerun()
+
+
+# ============================================================================
+# TAB 2: NUEVA RECETA
+# ============================================================================
+with tab_nueva:
+    col_form, col_preview = st.columns([1, 1], gap="large")
+
+    with col_form:
+        st.markdown('<div class="card"><div class="card-title">📝 Formulario de Receta</div></div>', unsafe_allow_html=True)
+
+        # Config destino
+        config_destino = st.selectbox(
+            "Config destino",
+            options=config_keys if config_keys else ["(sin configs)"],
+            format_func=lambda x: f"config_{x}.lua — {get_job_display_name(x)}" if x != "(sin configs)" else x,
+            key="tab2_config_dest",
+        )
+        if config_destino == "(sin configs)":
+            st.warning("Crea un config primero en la pestaña **Nuevo Config**.")
+            st.stop()
+
+        job_data = get_job_metadata(config_destino)
+
+        # Modo crear / editar
+        modo = st.radio(
+            "Modo",
+            ["crear", "editar"],
+            format_func=lambda x: "✨ Crear nueva" if x == "crear" else "✏️ Editar existente",
+            horizontal=True, key="tab2_modo"
+        )
+
+        # Defaults
+        d_nombre, d_nivel, d_tipo, d_cat_idx = "", 0, "item", None
+        d_take, d_use_curr, d_curr_type, d_location = True, False, 0, 0
+        d_animation, d_pack = "craft", ""
+
+        if modo == "editar":
+            existing = get_config_file_content(config_destino)
+            if existing:
+                crafteos_edit = parse_crafting_blocks(existing)
+                if crafteos_edit:
+                    nombres = [c.get('nombre', '???') for c in crafteos_edit]
+                    sel_idx = st.selectbox("Receta a editar", range(len(nombres)),
+                                           format_func=lambda i: nombres[i], key="edit_sel")
+                    cd = crafteos_edit[sel_idx]
+
+                    # Detectar cambio de selección
+                    nom_sel = cd.get('nombre', '')
+                    if st.session_state.nombre_original != nom_sel:
+                        st.session_state.nombre_original = nom_sel
+                        st.session_state.crafteo_editando = cd
+                        st.session_state.ingredientes = [
+                            {'name': i.get('name', ''), 'label': ALL_ITEMS.get(i.get('name', ''), i.get('name', '')), 'count': i.get('count', 1)}
+                            for i in cd.get('ingredientes', [])
+                        ]
+                        st.session_state.recompensas = [
+                            {'name': r.get('name', ''), 'label': ALL_ITEMS.get(r.get('name', ''), r.get('name', '')), 'count': r.get('count', 1)}
+                            for r in cd.get('recompensas', [])
+                        ]
+                        st.rerun()
+
+                    d_nombre = cd.get('nombre', '')
+                    d_nivel = cd.get('nivel_minimo', 0)
+                    d_tipo = cd.get('tipo', 'item')
+                    d_take = cd.get('take_items', True)
+                    d_use_curr = cd.get('use_currency', False)
+                    d_curr_type = cd.get('currency_type', 0)
+                    d_location = cd.get('location', 0)
+                    d_animation = cd.get('animation', 'craft')
+                    d_pack = cd.get('pack', '')
+                    loaded_cat = cd.get('categoria', '')
+                    cat_keys = list(CATEGORIAS_CRAFTEO.keys())
+                    d_cat_idx = cat_keys.index(loaded_cat) if loaded_cat in cat_keys else None
+
+                    st.info(f"Editando: **{d_nombre}**")
+                else:
+                    st.warning("No hay recetas en este config para editar.")
+                    modo = "crear"
+            else:
+                st.warning("No se pudo leer el config.")
+                modo = "crear"
+
+        if modo == "crear":
+            st.session_state.modo_edicion = False
+            st.session_state.nombre_original = None
+            st.session_state.crafteo_editando = None
+
+        # --- Categoría ---
+        cat_keys = list(CATEGORIAS_CRAFTEO.keys())
+        if d_cat_idx is not None:
+            cat_idx = d_cat_idx
+        else:
+            default_cat = job_data['category']
+            cat_idx = cat_keys.index(default_cat) if default_cat in cat_keys else 0
+
+        categoria = st.selectbox("Categoría del crafteo", cat_keys, index=cat_idx,
+                                  format_func=lambda x: CATEGORIAS_CRAFTEO[x], key="cat_sel")
+
+        # --- Nombre y nivel ---
+        c1, c2 = st.columns([3, 1])
+        nombre = c1.text_input("Nombre *", value=d_nombre, placeholder="Ej: Munición de pistola")
+        nivel = c2.number_input("Nivel mín.", 0, 100, d_nivel)
+
+        # --- Tipo ---
+        tipo_keys = list(TIPOS_CRAFTEO.keys())
+        tipo_idx = tipo_keys.index(d_tipo) if d_tipo in tipo_keys else 0
+        tipo = st.selectbox("Tipo", tipo_keys, tipo_idx, format_func=lambda x: TIPOS_CRAFTEO[x])
+
+        # --- RECOMPENSAS ---
+        st.markdown('<div class="card"><div class="card-title">🎁 Recompensas</div></div>', unsafe_allow_html=True)
+
+        search_rew = st.text_input("🔍 Buscar item de recompensa", placeholder="Filtrar...", key="s_rew")
+        items_f = filter_items(ALL_ITEMS, search_rew)
+        if search_rew:
+            st.caption(f"{len(items_f)} encontrados")
+
+        cr1, cr2, cr3 = st.columns([3, 1, 1])
+        with cr1:
+            use_manual_rew = st.checkbox("ID manual", key="m_rew")
+            if use_manual_rew:
+                new_rew = st.text_input("ID item", key="mr_id", placeholder="weapon_revolver_cattleman")
+                new_rew_label = new_rew
+            else:
+                new_rew = st.selectbox("Item", [""] + list(items_f.keys()),
+                    format_func=lambda x: f"{items_f[x]} ({x})" if x else "-- Seleccionar --", key="sr_sel")
+                new_rew_label = items_f.get(new_rew, new_rew)
+        cnt_rew = cr2.number_input("Cant.", 1, 999, 1, key="cr_cnt")
+        with cr3:
+            st.write(""); st.write("")
+            if st.button("➕", key="add_rew", use_container_width=True):
+                if new_rew:
+                    st.session_state.recompensas.append({'name': new_rew, 'label': new_rew_label, 'count': cnt_rew})
+                    st.rerun()
+
+        for i, r in enumerate(st.session_state.recompensas):
+            c_a, c_b = st.columns([5, 1])
+            c_a.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {r["label"]}</span> <span class="id">({r["name"]})</span></div><span class="count" style="background:#00d26a">x{r["count"]}</span></div>', unsafe_allow_html=True)
+            if c_b.button("🗑️", key=f"dr_{i}"):
+                st.session_state.recompensas.pop(i); st.rerun()
+
+        if st.session_state.recompensas:
+            if st.button("🗑️ Limpiar recompensas", key="cl_rew"):
+                st.session_state.recompensas = []; st.rerun()
+
+        # --- INGREDIENTES ---
+        st.markdown('<div class="card"><div class="card-title">🧪 Ingredientes</div></div>', unsafe_allow_html=True)
+
+        search_ing = st.text_input("🔍 Buscar ingrediente", placeholder="Filtrar...", key="s_ing")
+        ings_f = filter_items(ALL_ITEMS, search_ing)
+        if search_ing:
+            st.caption(f"{len(ings_f)} encontrados")
+
+        ci1, ci2, ci3 = st.columns([3, 1, 1])
+        with ci1:
+            use_manual_ing = st.checkbox("ID manual", key="m_ing")
+            if use_manual_ing:
+                new_ing = st.text_input("ID ingrediente", key="mi_id", placeholder="gunpowder")
+                new_ing_label = new_ing
+            else:
+                new_ing = st.selectbox("Ingrediente", [""] + list(ings_f.keys()),
+                    format_func=lambda x: f"{ings_f[x]} ({x})" if x else "-- Seleccionar --", key="si_sel")
+                new_ing_label = ings_f.get(new_ing, new_ing)
+        cnt_ing = ci2.number_input("Cant.", 1, 999, 1, key="ci_cnt")
+        with ci3:
+            st.write(""); st.write("")
+            if st.button("➕", key="add_ing", use_container_width=True):
+                if new_ing:
+                    st.session_state.ingredientes.append({'name': new_ing, 'label': new_ing_label, 'count': cnt_ing})
+                    st.rerun()
+
+        for i, ing in enumerate(st.session_state.ingredientes):
+            c_a, c_b = st.columns([5, 1])
+            c_a.markdown(f'<div class="item-row"><div><span class="name">📦 {ing["label"]}</span> <span class="id">({ing["name"]})</span></div><span class="count">x{ing["count"]}</span></div>', unsafe_allow_html=True)
+            if c_b.button("🗑️", key=f"di_{i}"):
+                st.session_state.ingredientes.pop(i); st.rerun()
+
+        if st.session_state.ingredientes:
+            if st.button("🗑️ Limpiar ingredientes", key="cl_ing"):
+                st.session_state.ingredientes = []; st.rerun()
+
+        # --- OPCIONES AVANZADAS ---
+        with st.expander("⚙️ Opciones avanzadas"):
+            ca1, ca2 = st.columns(2)
+            with ca1:
+                take_items = st.checkbox("Consumir ingredientes", d_take, key="take")
+                use_currency = st.checkbox("Cobrar dinero", d_use_curr, key="ucurr")
+                if use_currency:
+                    currency_type = st.selectbox("Moneda", [0, 1], d_curr_type,
+                        format_func=lambda x: "💵 Cash" if x == 0 else "🪙 Gold", key="ctype")
+                else:
+                    currency_type = 0
+            with ca2:
+                location = st.number_input("Location ID", 0, value=d_location, key="loc")
+                anim_keys = list(ANIMACIONES.keys())
+                anim_idx = anim_keys.index(d_animation) if d_animation in anim_keys else 0
+                animation = st.selectbox("Animación", anim_keys, anim_idx,
+                    format_func=lambda x: ANIMACIONES[x], key="anim")
+
+            # Pack: predefinido o custom
+            st.markdown("**Pack (opcional)**")
+            pack_mode = st.radio("", ["Predefinido", "Personalizado"], horizontal=True, key="pack_mode", label_visibility="collapsed")
+            if pack_mode == "Predefinido":
+                pack_idx = PACKS_PREDEFINIDOS.index(d_pack) if d_pack in PACKS_PREDEFINIDOS else 0
+                pack = st.selectbox("Pack", PACKS_PREDEFINIDOS, pack_idx,
+                    format_func=lambda x: "-- Sin pack --" if x == "" else x.capitalize(), key="pack_sel")
+            else:
+                pack = st.text_input("Nombre del pack", value=d_pack, placeholder="Ej: nomada", key="pack_custom")
+
+            # Job override
+            st.markdown("**Job (valor para filtro de trabajo)**")
+            job_override = st.text_input("Job value", value=str(job_data['job_value']),
+                help='0 = cualquiera. Para jobs específicos: {"medicoAR", "medicoBW"}', key="job_ov")
+            if job_override.strip().startswith('{'):
+                job_final = job_override.strip()
+            else:
+                try:
+                    job_final = int(job_override)
+                except ValueError:
+                    job_final = 0
+
+    # --- PREVIEW Y GUARDADO ---
+    with col_preview:
+        st.markdown('<div class="card"><div class="card-title">📤 Preview y Guardado</div></div>', unsafe_allow_html=True)
+
+        errores = []
+        if not nombre: errores.append("Nombre del crafteo")
+        if not st.session_state.recompensas: errores.append("Al menos una recompensa")
+        if not st.session_state.ingredientes: errores.append("Al menos un ingrediente")
+
+        if errores:
+            st.warning("**Campos requeridos:**")
+            for e in errores:
+                st.markdown(f"- {e}")
+        else:
+            # Generar descripción automática
+            desc = ", ".join(f"{i['count']}x {i['label']}" for i in st.session_state.ingredientes)
+
+            datos = {
+                'nombre': nombre, 'descripcion': desc, 'categoria': categoria,
+                'tipo': tipo, 'nivel_minimo': nivel, 'recompensas': st.session_state.recompensas,
+                'ingredientes': st.session_state.ingredientes, 'take_items': take_items,
+                'currency_type': currency_type, 'location': location, 'animation': animation,
+                'use_currency': use_currency, 'job': job_final, 'pack': pack,
+            }
+            codigo_lua = generate_crafting_block(datos)
+
+            # Validar sintaxis
+            syntax_errors = validate_lua_syntax(codigo_lua)
+            if syntax_errors:
+                st.error("⚠️ Errores de sintaxis Lua detectados:")
+                for se in syntax_errors:
+                    st.markdown(f"- {se}")
+
+            # Resumen
+            st.markdown(f"""
+            <div class="card">
+                <div class="card-title">✅ Resumen</div>
+                <table style="width:100%;color:#d4c5a9;font-family:'IM Fell English',serif">
+                    <tr><td>Config destino</td><td style="text-align:right"><b>config_{config_destino}.lua</b></td></tr>
+                    <tr><td>Nombre</td><td style="text-align:right"><b>{nombre}</b></td></tr>
+                    <tr><td>Categoría</td><td style="text-align:right">{categoria}</td></tr>
+                    <tr><td>Recompensas</td><td style="text-align:right">{len(st.session_state.recompensas)} items</td></tr>
+                    <tr><td>Ingredientes</td><td style="text-align:right">{len(st.session_state.ingredientes)} items</td></tr>
+                    <tr><td>Nivel mínimo</td><td style="text-align:right">{nivel}</td></tr>
+                    <tr><td>Pack</td><td style="text-align:right">{pack or '—'}</td></tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Código
+            with st.expander("💻 Código Lua generado", expanded=True):
+                st.code(codigo_lua, language="lua")
+
+            st.download_button("📥 Descargar bloque", codigo_lua,
+                f"crafteo_{config_destino}_{nombre.lower().replace(' ', '_')}.lua", "text/plain",
+                use_container_width=True, key="dl_block")
+
+            st.markdown("---")
+
+            # === MODO EDICIÓN: guardar cambios ===
+            if modo == "editar" and st.session_state.nombre_original:
+                st.markdown(f"**Editando:** {st.session_state.nombre_original} → {nombre}")
+
+                config_editado = replace_crafting_in_config(config_destino, st.session_state.nombre_original, codigo_lua)
+                if config_editado:
+                    # Validar config completo
+                    full_errors = validate_full_config(config_editado)
+                    if full_errors:
+                        st.warning("Advertencias en el config resultante:")
+                        for fe in full_errors:
+                            st.caption(f"⚠️ {fe}")
+
+                    if st.button("☁️ Guardar cambios" if st.session_state.drive_connected else "💾 Guardar cambios",
+                                 use_container_width=True, type="primary", key="save_edit"):
+                        if save_config_file(config_destino, config_editado):
+                            st.success("Cambios guardados correctamente")
+                            if _drive_available and st.session_state.drive_connected:
+                                drive_manager.clear_cache()
+                            st.session_state.ingredientes = []
+                            st.session_state.recompensas = []
+                            st.session_state.nombre_original = None
+                            st.rerun()
+                        else:
+                            st.error("Error al guardar")
+
+                    with st.expander("Preview config editado"):
+                        st.code(config_editado, language="lua")
+                else:
+                    st.error("No se encontró el crafteo original para reemplazar")
+
+                # Opción desactivar
+                st.markdown("---")
+                if st.button("🚫 Desactivar este crafteo", key="disable_edit", use_container_width=True):
+                    config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
+                    if config_dis and save_config_file(config_destino, config_dis):
+                        st.success(f"'{st.session_state.nombre_original}' desactivado")
+                        if _drive_available and st.session_state.drive_connected:
+                            drive_manager.clear_cache()
+                        st.session_state.ingredientes = []
+                        st.session_state.recompensas = []
+                        st.session_state.nombre_original = None
+                        st.rerun()
+
+            # === MODO CREACIÓN: añadir nuevo ===
+            else:
+                existing = get_config_file_content(config_destino)
+                if existing:
+                    config_completo = add_crafting_to_config(config_destino, codigo_lua)
+                    n_existentes = len(parse_crafting_blocks(existing))
+
+                    # Validar config completo
+                    full_errors = validate_full_config(config_completo)
+                    if full_errors:
+                        st.warning("Advertencias en el config resultante:")
+                        for fe in full_errors:
+                            st.caption(f"⚠️ {fe}")
+
+                    st.success(f"Config tiene {n_existentes} recetas. Se añadirá una nueva.")
+
+                    if st.button(
+                        f"☁️ Guardar en config_{config_destino}.lua" if st.session_state.drive_connected else f"💾 Guardar en config_{config_destino}.lua",
+                        use_container_width=True, type="primary", key="save_new"
+                    ):
+                        if save_config_file(config_destino, config_completo):
+                            st.success("Receta añadida y guardada correctamente")
+                            if _drive_available and st.session_state.drive_connected:
+                                drive_manager.clear_cache()
+                            st.session_state.ingredientes = []
+                            st.session_state.recompensas = []
+                            st.rerun()
+                        else:
+                            st.error("Error al guardar")
+
+                    with st.expander("Preview config completo"):
+                        st.code(config_completo, language="lua")
+                else:
+                    st.info(f"No existe config_{config_destino}.lua. Se creará uno nuevo.")
+                    config_name = get_config_name(config_destino)
+                    nuevo_config = (
+                        f"Config.{config_name} = {{{codigo_lua}\n}}\n\n"
+                        f"-- Agregamos a la configuración general los items de {config_destino}\n"
+                        f"for _, item in pairs(Config.{config_name}) do\n"
+                        f"    table.insert(Config.Crafting, item)\n"
+                        f"end\n"
+                    )
+                    if st.button("☁️ Crear config" if st.session_state.drive_connected else "💾 Crear config",
+                                 use_container_width=True, type="primary", key="create_new"):
+                        if save_config_file(config_destino, nuevo_config):
+                            st.success("Config creado correctamente")
+                            if _drive_available and st.session_state.drive_connected:
+                                drive_manager.clear_cache()
+                            st.rerun()
+
+
+# ============================================================================
+# TAB 3: NUEVO CONFIG (JOB)
+# ============================================================================
+with tab_config:
+    st.markdown('<div class="card"><div class="card-title">🏭 Crear Nuevo Config / Job</div></div>', unsafe_allow_html=True)
+    st.markdown("Crea un nuevo archivo `config_xxx.lua` para un nuevo oficio o categoría.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        new_key = st.text_input("Clave del config *",
+            placeholder="tienda, herrero, panaderia...",
+            help="Se usará como config_<clave>.lua. Solo letras, sin espacios ni caracteres especiales.",
+            key="new_cfg_key")
+    with c2:
+        new_display = st.text_input("Nombre para mostrar",
+            placeholder="🏪 Tienda",
+            help="Nombre con emoji que se mostrará en la interfaz",
+            key="new_cfg_display")
+
+    new_config_name = st.text_input("Nombre Config.X en Lua",
+        value=new_key.capitalize() if new_key else "",
+        placeholder="Tienda",
+        help="Nombre de la variable Lua: Config.Tienda = {}",
+        key="new_cfg_lua")
+
+    new_category = st.text_input("Categoría por defecto",
+        value=new_config_name if new_config_name else "",
+        placeholder="Tienda",
+        help="Valor de Category en cada receta de este config",
+        key="new_cfg_cat")
+
+    new_job_value = st.text_input("Job value",
+        value="0",
+        help='0 = cualquiera. Para jobs específicos: {"tiendero", "vendedor"}',
+        key="new_cfg_job")
+
+    # Validaciones
+    key_valid = bool(new_key and new_key.isalnum())
+    key_exists = new_key in (config_keys if config_keys else [])
+
+    if new_key and not key_valid:
+        st.error("La clave solo puede contener letras y números, sin espacios.")
+    if key_exists:
+        st.error(f"Ya existe config_{new_key}.lua")
+
+    if new_key and new_config_name:
+        # Preview
+        preview_content = create_empty_config(new_key, new_config_name)
+        st.markdown("**Preview del archivo:**")
+        st.code(preview_content, language="lua")
+
+        can_create = key_valid and not key_exists and new_config_name
+        if st.button("🆕 Crear config" + (" en Drive" if st.session_state.drive_connected else ""),
+                     disabled=not can_create, use_container_width=True, type="primary", key="btn_create_cfg"):
+            # Registrar el nuevo nombre
+            register_config_name(new_key, new_config_name)
+
+            if save_config_file(new_key, preview_content):
+                st.success(f"✅ config_{new_key}.lua creado correctamente")
+                if _drive_available and st.session_state.drive_connected:
+                    drive_manager.clear_cache()
+
+                # Registrar en CATEGORIAS_CRAFTEO si es nuevo
+                if new_category and new_category not in CATEGORIAS_CRAFTEO:
+                    CATEGORIAS_CRAFTEO[new_category] = f"📄 {new_display or new_category}"
+
+                # Registrar en BASE_JOBS
+                if new_key not in BASE_JOBS:
+                    jv = new_job_value.strip()
+                    if jv.startswith('{'):
+                        jv_parsed = jv
+                    else:
+                        try:
+                            jv_parsed = int(jv)
+                        except ValueError:
+                            jv_parsed = 0
+                    BASE_JOBS[new_key] = {
+                        'nombre': new_display or f"📄 {new_config_name}",
+                        'category': new_category or new_config_name,
+                        'job_value': jv_parsed,
+                    }
+
+                st.rerun()
+            else:
+                st.error("Error al crear el archivo")
+
+
+# ============================================================================
+# TAB 4: EDITOR LUA
+# ============================================================================
+with tab_editor:
+    st.markdown('<div class="card"><div class="card-title">✏️ Editor de Código Lua</div></div>', unsafe_allow_html=True)
+
+    if not config_keys:
+        st.warning("No hay configs disponibles.")
+    else:
+        ed_config = st.selectbox("Archivo a editar", config_keys,
+            format_func=lambda x: f"config_{x}.lua", key="ed_cfg_sel")
+
+        ed_content = get_config_file_content(ed_config)
+        if ed_content:
+            edited = st.text_area("Código Lua", ed_content, height=500, key=f"editor_{ed_config}",
+                                  label_visibility="collapsed")
+
+            has_changes = edited != ed_content
+
+            # Validar en tiempo real
+            if has_changes:
+                v_errors = validate_full_config(edited)
+                if v_errors:
+                    st.warning("⚠️ Problemas detectados:")
+                    for ve in v_errors:
+                        st.caption(f"- {ve}")
+                else:
+                    st.success("✅ Sintaxis válida")
+
+            c1, c2, c3 = st.columns([2, 1, 1])
+            with c1:
+                if st.button(
+                    "☁️ Guardar cambios" if has_changes else "Sin cambios",
+                    disabled=not has_changes, use_container_width=True, type="primary",
+                    key=f"save_ed_{ed_config}"
+                ):
+                    if save_config_file(ed_config, edited):
+                        st.success(f"config_{ed_config}.lua guardado")
+                        if _drive_available and st.session_state.drive_connected:
+                            drive_manager.clear_cache()
+                        st.rerun()
+                    else:
+                        st.error("Error al guardar")
+            with c2:
+                if st.button("↩️ Revertir", disabled=not has_changes, use_container_width=True, key=f"rev_{ed_config}"):
+                    st.rerun()
+            with c3:
+                st.download_button("📥 Descargar", edited, f"config_{ed_config}.lua",
+                    "text/plain", use_container_width=True, key=f"dl_ed_{ed_config}")
+        else:
+            st.error(f"No se pudo leer config_{ed_config}.lua")
+
 
 # ============================================================================
 # FOOTER
 # ============================================================================
 st.markdown("---")
 st.markdown("""
-<div style='text-align: center; padding: 20px;'>
-    <p style='color: #666; font-size: 0.9rem; margin: 0;'>
-        🔨 <strong>Generador de Crafteos para RedM</strong> - VORP Crafting System
-    </p>
-    <p style='color: #555; font-size: 0.8rem; margin: 5px 0 0 0;'>
-        Desarrollado con ❤️ para La Hermandad
-    </p>
+<div style="text-align:center;padding:15px">
+    <span style="color:#888;font-size:.85rem">⚒️ <b>Craftsman's Forge</b> — VORP Crafting System</span><br>
+    <span style="color:#666;font-size:.75rem">Desarrollado para La Hermandad</span>
 </div>
 """, unsafe_allow_html=True)

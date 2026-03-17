@@ -1,129 +1,68 @@
 """
 Generador de bloques de código Lua para VORP Crafting
+Lectura, escritura, parseo y validación de configs de crafteo.
 """
-import os
 import re
 from pathlib import Path
 
-# Obtener el directorio base
 BASE_DIR = Path(__file__).parent
 CONFIGS_PATH = BASE_DIR / "configs"
+
 # ============================================================================
 # MODO DE ALMACENAMIENTO (local / drive)
 # ============================================================================
-
-_storage_mode = 'local'  # 'local' o 'drive'
-_drive_module = None      # Referencia al módulo drive_manager
+_storage_mode = 'local'
+_drive_module = None
 
 
 def set_storage_mode(mode: str, drive_module=None):
-    """
-    Configura el modo de almacenamiento.
-    
-    Args:
-        mode: 'local' para archivos locales, 'drive' para Google Drive
-        drive_module: Módulo drive_manager (requerido si mode='drive')
-    """
     global _storage_mode, _drive_module
     _storage_mode = mode
     _drive_module = drive_module
 
 
 def get_storage_mode() -> str:
-    """Retorna el modo de almacenamiento actual ('local' o 'drive')"""
     return _storage_mode
 
-def generate_crafting_block(data: dict) -> str:
-    """
-    Genera un bloque de código Lua para un crafteo en formato VORP Crafting
-    
-    Args:
-        data: Diccionario con los datos del crafteo
-    
-    Returns:
-        str: Código Lua formateado
-    """
-    
-    # Formatear ingredientes
-    items_lines = []
-    for ing in data['ingredientes']:
-        take_value = "true" if data.get('take_items', True) else "false"
-        take_str = f",\n        take = {take_value}"
-        items_lines.append(f"""{{
-        name = "{ing['name']}",
-        count = {ing['count']}{take_str}
-    }}""")
-    
-    if len(items_lines) == 1:
-        items_block = "{" + items_lines[0] + "}"
-    else:
-        items_block = "{" + ", ".join(items_lines) + "}"
-    
-    # Formatear recompensas (puede ser una lista de items)
-    recompensas = data.get('recompensas', [])
-    if not recompensas:
-        # Compatibilidad con formato antiguo (un solo item)
-        recompensas = [{
-            'name': data.get('recompensa', ''),
-            'count': data.get('cantidad_recompensa', 1)
-        }]
-    
-    reward_lines = []
-    for rew in recompensas:
-        reward_lines.append(f"""{{
-        name = "{rew['name']}",
-        count = {rew['count']}
-    }}""")
-    
-    if len(reward_lines) == 1:
-        reward_block = "{" + reward_lines[0] + "}"
-    else:
-        reward_block = "{" + ", ".join(reward_lines) + "}"
-    
-    # Formatear Job (puede ser 0 o una tabla de strings)
-    job_value = data.get('job', 0)
-    if isinstance(job_value, str) and job_value.startswith('{'):
-        job_str = job_value
-    else:
-        job_str = str(job_value)
-    
-    # Línea opcional de Pack
-    pack_value = data.get('pack', '')
-    pack_line = f'\n    Pack = "{pack_value}",' if pack_value else ''
-    
-    # Generar el bloque de crafteo
-    lua_code = f"""{{
-    TakeItems = {str(data.get('take_items', True)).lower()},
-    CurrencyType = {data.get('currency_type', 0)},
-    Location = {data.get('location', 0)},
-    Animation = "{data.get('animation', 'craft')}",
-    Category = "{data['categoria']}",
-    Text = "{data['nombre']}",{pack_line}
-    Desc = "{data['descripcion']}",
-    Reward = {reward_block},
-    Minlvl = {data.get('nivel_minimo', 0)},
-    UseCurrencyMode = {str(data.get('use_currency', False)).lower()},
-    Job = {job_str},
-    Type = "{data.get('tipo', 'item')}",
-    Items = {items_block}
-}}"""
-    
-    return lua_code
 
+# ============================================================================
+# NOMBRES DE CONFIG
+# ============================================================================
+_NAME_MAP = {
+    'agricultor': 'Agricultor', 'armero': 'Armero', 'artesano': 'Artesano',
+    'bandas': 'Bandas', 'cocinaDulce': 'CocinaDulce', 'cocinaMixta': 'CocinaMixta',
+    'cocinaPacks': 'CocinaPacks', 'cocinaTier1': 'CocinaTier1',
+    'cocinaTier2': 'CocinaTier2', 'cocinaTier3': 'CocinaTier3',
+    'destilador': 'Destilador', 'distribuidora': 'Distribuidora',
+    'establo': 'Establo', 'ganadero': 'Ganadero', 'medicos': 'Medicos',
+    'perista': 'Perista', 'pescadero': 'Pescadero', 'tabacalero': 'Tabacalero',
+}
+
+
+def get_config_name(job_key: str) -> str:
+    """Obtiene el nombre del config para Lua (Config.X) basado en la clave del job."""
+    if job_key in _NAME_MAP:
+        return _NAME_MAP[job_key]
+    content = get_config_file_content(job_key)
+    if content:
+        m = re.match(r'Config\.(\w+)\s*=', content)
+        if m:
+            return m.group(1)
+    return job_key[0].upper() + job_key[1:] if job_key else job_key
+
+
+def register_config_name(job_key: str, config_name: str):
+    """Registra un nuevo mapeo job_key -> Config.Name."""
+    _NAME_MAP[job_key] = config_name
+
+
+# ============================================================================
+# LECTURA / ESCRITURA DE ARCHIVOS
+# ============================================================================
 
 def get_config_file_content(job_key: str) -> str:
-    """
-    Lee el contenido de un archivo de configuración existente.
-    Soporta modo local y modo Drive.
-    
-    Args:
-        job_key: Clave del job (ej: 'armero', 'medicos')
-    
-    Returns:
-        str: Contenido del archivo o None si no existe
-    """
+    """Lee el contenido de un archivo de configuración (Drive o local)."""
     filename = f"config_{job_key}.lua"
-    
     if _storage_mode == 'drive' and _drive_module:
         try:
             return _drive_module.read_file(filename)
@@ -142,19 +81,8 @@ def get_config_file_content(job_key: str) -> str:
 
 
 def save_config_file(job_key: str, content: str) -> bool:
-    """
-    Guarda el contenido de un archivo de configuración.
-    En modo Drive, escribe a Google Drive. En modo local, escribe al disco.
-    
-    Args:
-        job_key: Clave del job (ej: 'armero', 'medicos')
-        content: Contenido completo del archivo Lua
-    
-    Returns:
-        bool: True si se guardó correctamente
-    """
+    """Guarda el contenido de un archivo de configuración (Drive o local)."""
     filename = f"config_{job_key}.lua"
-    
     if _storage_mode == 'drive' and _drive_module:
         try:
             return _drive_module.write_file(filename, content)
@@ -173,116 +101,8 @@ def save_config_file(job_key: str, content: str) -> bool:
             return False
 
 
-def add_crafting_to_config(job_key: str, new_crafting_block: str) -> str:
-    """
-    Añade un nuevo bloque de crafteo al archivo de configuración existente
-    
-    Args:
-        job_key: Clave del job
-        new_crafting_block: Bloque de código Lua del nuevo crafteo
-    
-    Returns:
-        str: Contenido completo del archivo con el nuevo crafteo añadido
-    """
-    import re
-    
-    existing_content = get_config_file_content(job_key)
-    
-    if existing_content:
-        # El formato del archivo es:
-        # Config.NombreJob = {{...crafteos...}}
-        # 
-        # -- Agregamos a la configuración general los items de artesano
-        # for _, item in pairs(Config.NombreJob) do
-        #     table.insert(Config.Crafting, item)
-        # end
-        
-        # Buscar el patrón: }}\n\n-- Agregamos... (el cierre del array y el bucle for)
-        pattern = r'(\}\})\s*(-- Agregamos.*?for _, item in pairs\(Config\.\w+\) do\s+table\.insert\(Config\.Crafting, item\)\s+end)'
-        match = re.search(pattern, existing_content, re.DOTALL)
-        
-        if match:
-            # Encontramos el patrón con bucle for
-            # Insertar el nuevo crafteo antes del cierre }}
-            before_close = existing_content[:match.start()]
-            closing_and_for = match.group(1) + "\n\n" + match.group(2)
-            
-            # Asegurar que hay una coma antes del nuevo crafteo
-            before_close = before_close.rstrip()
-            if not before_close.endswith(','):
-                before_close += ","
-            
-            new_content = before_close + " " + new_crafting_block + "\n" + closing_and_for
-            return new_content
-        else:
-            # Intentar otro patrón: solo cierre de array sin bucle for
-            # Config.Job = {...}
-            pattern2 = r'(\})\s*$'
-            match2 = re.search(pattern2, existing_content)
-            
-            if match2:
-                before_close = existing_content[:match2.start()].rstrip()
-                if not before_close.endswith(','):
-                    before_close += ","
-                
-                # Añadir el nuevo crafteo y crear el bucle for
-                config_name = get_config_name(job_key)
-                for_loop = f"\n\n-- Agregamos a la configuración general los items de {job_key}\nfor _, item in pairs(Config.{config_name}) do\n    table.insert(Config.Crafting, item)\nend"
-                
-                new_content = before_close + " " + new_crafting_block + "\n}" + for_loop
-                return new_content
-        
-        # Si no encontramos ningún patrón esperado, añadir al final
-        return existing_content + "\n" + new_crafting_block
-    else:
-        # No existe el archivo, crear uno nuevo con el bucle for
-        config_name = get_config_name(job_key)
-        for_loop = f"\n\n-- Agregamos a la configuración general los items de {job_key}\nfor _, item in pairs(Config.{config_name}) do\n    table.insert(Config.Crafting, item)\nend"
-        return f"Config.{config_name} = {{{new_crafting_block}\n}}" + for_loop
-
-
-def get_config_name(job_key: str) -> str:
-    """
-    Obtiene el nombre del config para Lua basado en la clave del job
-    
-    Args:
-        job_key: Clave del job (ej: 'cocinaTier1', 'medicos')
-    
-    Returns:
-        str: Nombre formateado para Config.X
-    """
-    # Mapeo de nombres especiales
-    name_map = {
-        'agricultor': 'Agricultor',
-        'armero': 'Armero',
-        'artesano': 'Artesano',
-        'bandas': 'Bandas',
-        'cocinaDulce': 'CocinaDulce',
-        'cocinaMixta': 'CocinaMixta',
-        'cocinaPacks': 'CocinaPacks',
-        'cocinaTier1': 'CocinaTier1',
-        'cocinaTier2': 'CocinaTier2',
-        'cocinaTier3': 'CocinaTier3',
-        'destilador': 'Destilador',
-        'distribuidora': 'Distribuidora',
-        'establo': 'Establo',
-        'ganadero': 'Ganadero',
-        'medicos': 'Medicos',
-        'perista': 'Perista',
-        'pescadero': 'Pescadero',
-        'tabacalero': 'Tabacalero'
-    }
-    return name_map.get(job_key, job_key.capitalize())
-
-
 def get_available_configs() -> list:
-    """
-    Obtiene la lista de archivos de configuración disponibles.
-    Soporta modo local y modo Drive.
-    
-    Returns:
-        list: Lista de claves de jobs disponibles (ej: ['armero', 'medicos'])
-    """
+    """Obtiene la lista de claves de jobs disponibles."""
     if _storage_mode == 'drive' and _drive_module:
         try:
             return _drive_module.get_available_config_keys()
@@ -293,45 +113,191 @@ def get_available_configs() -> list:
         configs = []
         if CONFIGS_PATH.exists():
             for f in CONFIGS_PATH.glob("config_*.lua"):
-                configs.append(f.stem.replace("config_", ""))
+                key = f.stem.replace("config_", "")
+                if key:
+                    configs.append(key)
         return sorted(configs)
 
 
 # ============================================================================
-# PARSER DE LUA - Para leer crafteos existentes
+# GENERACIÓN DE CÓDIGO LUA
+# ============================================================================
+
+def generate_crafting_block(data: dict) -> str:
+    """Genera un bloque de código Lua para un crafteo en formato VORP Crafting."""
+
+    # Ingredientes
+    items_lines = []
+    for ing in data['ingredientes']:
+        take_value = "true" if data.get('take_items', True) else "false"
+        items_lines.append(
+            f'{{\n        name = "{ing["name"]}",\n'
+            f'        count = {ing["count"]},\n'
+            f'        take = {take_value}\n    }}'
+        )
+    items_block = "{" + ", ".join(items_lines) + "}"
+
+    # Recompensas
+    recompensas = data.get('recompensas', [])
+    if not recompensas:
+        recompensas = [{'name': data.get('recompensa', ''), 'count': data.get('cantidad_recompensa', 1)}]
+    reward_lines = []
+    for rew in recompensas:
+        reward_lines.append(
+            f'{{\n        name = "{rew["name"]}",\n        count = {rew["count"]}\n    }}'
+        )
+    reward_block = "{" + ", ".join(reward_lines) + "}"
+
+    # Job
+    job_value = data.get('job', 0)
+    job_str = job_value if isinstance(job_value, str) and job_value.startswith('{') else str(job_value)
+
+    # Pack (opcional)
+    pack_value = data.get('pack', '')
+    pack_line = f'\n    Pack = "{pack_value}",' if pack_value else ''
+
+    lua_code = (
+        "{\n"
+        f"    TakeItems = {str(data.get('take_items', True)).lower()},\n"
+        f"    CurrencyType = {data.get('currency_type', 0)},\n"
+        f"    Location = {data.get('location', 0)},\n"
+        f'    Animation = "{data.get("animation", "craft")}",\n'
+        f'    Category = "{data["categoria"]}",\n'
+        f'    Text = "{data["nombre"]}",{pack_line}\n'
+        f'    Desc = "{data["descripcion"]}",\n'
+        f"    Reward = {reward_block},\n"
+        f"    Minlvl = {data.get('nivel_minimo', 0)},\n"
+        f"    UseCurrencyMode = {str(data.get('use_currency', False)).lower()},\n"
+        f"    Job = {job_str},\n"
+        f'    Type = "{data.get("tipo", "item")}",\n'
+        f"    Items = {items_block}\n"
+        "}"
+    )
+    return lua_code
+
+
+# ============================================================================
+# CREAR CONFIG NUEVO / VACÍO
+# ============================================================================
+
+def create_empty_config(job_key: str, config_name: str = None) -> str:
+    """Genera el contenido de un config nuevo vacío para un job."""
+    if not config_name:
+        config_name = get_config_name(job_key)
+    return (
+        f"Config.{config_name} = {{\n}}\n\n"
+        f"-- Agregamos a la configuración general los items de {job_key}\n"
+        f"for _, item in pairs(Config.{config_name}) do\n"
+        f"    table.insert(Config.Crafting, item)\n"
+        f"end\n"
+    )
+
+
+# ============================================================================
+# AÑADIR CRAFTEO A CONFIG (robusto con conteo de llaves)
+# ============================================================================
+
+def _find_main_table_close(content: str) -> int:
+    """
+    Encuentra la posición de la llave '}' que cierra la tabla Config.X = { ... }.
+    Ignora strings y comentarios. Retorna el índice o -1.
+    """
+    header = re.match(r'Config\.\w+\s*=\s*\{', content)
+    if not header:
+        return -1
+
+    depth = 0
+    i = header.end() - 1  # posición del '{'
+    in_string = False
+    in_comment = False
+    length = len(content)
+
+    while i < length:
+        c = content[i]
+        if not in_string and not in_comment and i + 1 < length and content[i:i+2] == '--':
+            in_comment = True
+            i += 2
+            continue
+        if in_comment:
+            if c == '\n':
+                in_comment = False
+            i += 1
+            continue
+        if c == '"' and not in_comment:
+            in_string = not in_string
+            i += 1
+            continue
+        if in_string:
+            if c == '\\':
+                i += 2
+                continue
+            i += 1
+            continue
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def add_crafting_to_config(job_key: str, new_crafting_block: str) -> str:
+    """Añade un nuevo bloque de crafteo al archivo de configuración existente."""
+    existing_content = get_config_file_content(job_key)
+
+    if not existing_content:
+        config_name = get_config_name(job_key)
+        return (
+            f"Config.{config_name} = {{{new_crafting_block}\n}}\n\n"
+            f"-- Agregamos a la configuración general los items de {job_key}\n"
+            f"for _, item in pairs(Config.{config_name}) do\n"
+            f"    table.insert(Config.Crafting, item)\n"
+            f"end\n"
+        )
+
+    close_pos = _find_main_table_close(existing_content)
+    if close_pos == -1:
+        return existing_content + "\n" + new_crafting_block
+
+    before = existing_content[:close_pos].rstrip()
+    after = existing_content[close_pos:]  # empieza con '}'
+
+    header = re.match(r'Config\.\w+\s*=\s*\{', existing_content)
+    inner = existing_content[header.end():close_pos].strip()
+
+    if inner:
+        if not before.endswith(','):
+            before += ','
+        return before + "\n" + new_crafting_block + "\n" + after
+    else:
+        return before + "\n" + new_crafting_block + "\n" + after
+
+
+# ============================================================================
+# PARSER DE LUA
 # ============================================================================
 
 def _extract_lua_string(value: str) -> str:
-    """Extrae un string Lua quitando comillas"""
     m = re.match(r'^"(.*)"$', value.strip())
-    if m:
-        return m.group(1)
-    return value.strip()
+    return m.group(1) if m else value.strip()
 
 
 def _parse_lua_table_items(block: str) -> list:
-    """
-    Parsea una tabla Lua de items/rewards como:
-    {{name="x", count=1, take=true}, {name="y", count=2}}
-    
-    Returns:
-        list de dicts con 'name', 'count' y opcionalmente 'take'
-    """
+    """Parsea una tabla Lua de items/rewards: {{name="x", count=1}, ...}"""
     items = []
     depth = 0
     current = ""
     for char in block:
         if char == '{':
             depth += 1
-            if depth <= 2:
-                # Inicio de tabla externa (depth 1) o interna (depth 2)
-                if depth == 2:
-                    current = ""
-                continue
+            if depth == 2:
+                current = ""
+            continue
         elif char == '}':
             depth -= 1
             if depth == 1 and current.strip():
-                # Fin de una sub-tabla interna → parsear item
                 item = {}
                 for pair in re.finditer(r'(\w+)\s*=\s*("[^"]*"|\w+)', current):
                     key = pair.group(1)
@@ -359,14 +325,8 @@ def _parse_lua_table_items(block: str) -> list:
 
 
 def _parse_lua_job(value: str):
-    """
-    Parsea el valor de Job, que puede ser:
-    - 0 (número)
-    - {"medicoAR", "medicoBW"} (tabla de strings)
-    """
     value = value.strip()
     if value.startswith('{'):
-        # Tabla de strings
         return value
     try:
         return int(value)
@@ -375,54 +335,28 @@ def _parse_lua_job(value: str):
 
 
 def parse_crafting_blocks(lua_content: str) -> list:
-    """
-    Parsea un archivo de config Lua y extrae todos los bloques de crafteo
-    como diccionarios Python.
-    
-    Args:
-        lua_content: Contenido del archivo .lua
-    
-    Returns:
-        list de dicts, cada uno representando un crafteo con sus campos
-    """
+    """Parsea un archivo de config Lua y extrae todos los bloques de crafteo."""
     crafteos = []
-    
     if not lua_content:
         return crafteos
-    
-    # Encontrar el inicio del array principal: Config.Xxx = {
-    # y extraer todo hasta el cierre correspondiente
+
     header_match = re.match(r'Config\.\w+\s*=\s*\{', lua_content)
     if not header_match:
         return crafteos
-    
-    # Extraer bloques de crafteo individuales
-    # Cada bloque empieza con { y contiene TakeItems, Text, etc.
-    # Usamos posición-based parsing para manejar tablas anidadas
+
     content_start = header_match.end()
-    
-    # Buscar todos los bloques de nivel 1 (crafteos individuales)
     depth = 0
     block_start = None
     i = content_start
-    
+
     while i < len(lua_content):
         char = lua_content[i]
-        
-        # Saltar comentarios de línea
         if lua_content[i:i+2] == '--':
-            # Verificar si es un bloque comentado (contiene TakeItems)
             line_end = lua_content.find('\n', i)
             if line_end == -1:
                 break
-            # Si estamos fuera de un bloque de crafteo, saltar la línea
-            if depth == 0:
-                i = line_end + 1
-                continue
-            else:
-                i = line_end + 1
-                continue
-        
+            i = line_end + 1
+            continue
         if char == '{':
             if depth == 0:
                 block_start = i
@@ -431,7 +365,6 @@ def parse_crafting_blocks(lua_content: str) -> list:
             depth -= 1
             if depth == 0 and block_start is not None:
                 block_text = lua_content[block_start:i+1]
-                # Solo parsear si parece un bloque de crafteo (tiene Text =)
                 if 'Text' in block_text and 'Items' in block_text:
                     crafteo = _parse_single_block(block_text)
                     if crafteo:
@@ -441,364 +374,202 @@ def parse_crafting_blocks(lua_content: str) -> list:
                         crafteos.append(crafteo)
                 block_start = None
         i += 1
-    
+
     return crafteos
 
 
 def _parse_single_block(block: str) -> dict:
-    """
-    Parsea un bloque individual de crafteo Lua y lo convierte a dict.
-    
-    Args:
-        block: Texto del bloque Lua (incluyendo llaves externas)
-    
-    Returns:
-        dict con los campos del crafteo
-    """
+    """Parsea un bloque individual de crafteo Lua y lo convierte a dict."""
     crafteo = {}
-    
-    # Extraer campos simples: Key = value
-    # TakeItems (bool)
+
     m = re.search(r'TakeItems\s*=\s*(true|false)', block)
-    if m:
-        crafteo['take_items'] = m.group(1) == 'true'
-    
-    # CurrencyType (int)
+    if m: crafteo['take_items'] = m.group(1) == 'true'
+
     m = re.search(r'CurrencyType\s*=\s*(\d+)', block)
-    if m:
-        crafteo['currency_type'] = int(m.group(1))
-    
-    # Location (int)
+    if m: crafteo['currency_type'] = int(m.group(1))
+
     m = re.search(r'Location\s*=\s*(\d+)', block)
-    if m:
-        crafteo['location'] = int(m.group(1))
-    
-    # Animation (string)
+    if m: crafteo['location'] = int(m.group(1))
+
     m = re.search(r'Animation\s*=\s*"([^"]*)"', block)
-    if m:
-        crafteo['animation'] = m.group(1)
-    
-    # Category (string)
+    if m: crafteo['animation'] = m.group(1)
+
     m = re.search(r'Category\s*=\s*"([^"]*)"', block)
-    if m:
-        crafteo['categoria'] = m.group(1)
-    
-    # Text (string) - nombre del crafteo
+    if m: crafteo['categoria'] = m.group(1)
+
     m = re.search(r'Text\s*=\s*"([^"]*)"', block)
-    if m:
-        crafteo['nombre'] = m.group(1)
-    
-    # Desc (string)
+    if m: crafteo['nombre'] = m.group(1)
+
     m = re.search(r'Desc\s*=\s*"([^"]*)"', block)
-    if m:
-        crafteo['descripcion'] = m.group(1)
-    
-    # Minlvl (int)
+    if m: crafteo['descripcion'] = m.group(1)
+
     m = re.search(r'Minlvl\s*=\s*(\d+)', block)
-    if m:
-        crafteo['nivel_minimo'] = int(m.group(1))
-    
-    # UseCurrencyMode (bool)
+    if m: crafteo['nivel_minimo'] = int(m.group(1))
+
     m = re.search(r'UseCurrencyMode\s*=\s*(true|false)', block)
-    if m:
-        crafteo['use_currency'] = m.group(1) == 'true'
-    
-    # Type (string)
+    if m: crafteo['use_currency'] = m.group(1) == 'true'
+
     m = re.search(r'Type\s*=\s*"([^"]*)"', block)
-    if m:
-        crafteo['tipo'] = m.group(1)
-    
-    # Ilegal (bool, opcional)
+    if m: crafteo['tipo'] = m.group(1)
+
     m = re.search(r'Ilegal\s*=\s*(true|false)', block)
-    if m:
-        crafteo['ilegal'] = m.group(1) == 'true'
-    
-    # Pack (string, opcional)
+    if m: crafteo['ilegal'] = m.group(1) == 'true'
+
     m = re.search(r'Pack\s*=\s*"([^"]*)"', block)
-    if m:
-        crafteo['pack'] = m.group(1)
-    
-    # Job - puede ser número o tabla
+    if m: crafteo['pack'] = m.group(1)
+
     m = re.search(r'Job\s*=\s*(\{[^}]*\}|\d+)', block)
-    if m:
-        crafteo['job'] = _parse_lua_job(m.group(1))
-    
-    # Reward - extraer la tabla completa
-    reward_match = re.search(r'Reward\s*=\s*(\{.+?\}(?:\s*\})?)', block, re.DOTALL)
-    if reward_match:
-        # Necesitamos encontrar el bloque completo de Reward
-        reward_start = block.index('Reward')
-        # Encontrar el inicio de la tabla
-        eq_pos = block.index('=', reward_start)
-        brace_start = block.index('{', eq_pos)
-        
-        # Contar llaves para encontrar el cierre
+    if m: crafteo['job'] = _parse_lua_job(m.group(1))
+
+    # Reward
+    reward_start_m = re.search(r'Reward\s*=\s*\{', block)
+    if reward_start_m:
+        brace_start = reward_start_m.end() - 1
         depth = 0
         reward_end = brace_start
         for idx in range(brace_start, len(block)):
-            if block[idx] == '{':
-                depth += 1
+            if block[idx] == '{': depth += 1
             elif block[idx] == '}':
                 depth -= 1
                 if depth == 0:
                     reward_end = idx + 1
                     break
-        
-        reward_block = block[brace_start:reward_end]
-        crafteo['recompensas'] = _parse_lua_table_items(reward_block)
-    
-    # Items - extraer la tabla completa
-    items_start_search = re.search(r'\bItems\s*=\s*\{', block)
-    if items_start_search:
-        brace_start = items_start_search.end() - 1
+        crafteo['recompensas'] = _parse_lua_table_items(block[brace_start:reward_end])
+
+    # Items
+    items_start_m = re.search(r'\bItems\s*=\s*\{', block)
+    if items_start_m:
+        brace_start = items_start_m.end() - 1
         depth = 0
         items_end = brace_start
         for idx in range(brace_start, len(block)):
-            if block[idx] == '{':
-                depth += 1
+            if block[idx] == '{': depth += 1
             elif block[idx] == '}':
                 depth -= 1
                 if depth == 0:
                     items_end = idx + 1
                     break
-        
-        items_block = block[brace_start:items_end]
-        crafteo['ingredientes'] = _parse_lua_table_items(items_block)
-    
+        crafteo['ingredientes'] = _parse_lua_table_items(block[brace_start:items_end])
+
     return crafteo
 
 
+# ============================================================================
+# REEMPLAZAR / ELIMINAR / COMENTAR / DESCOMENTAR CRAFTEOS
+# ============================================================================
+
 def replace_crafting_in_config(job_key: str, old_craft_name: str, new_crafting_block: str) -> str:
-    """
-    Reemplaza un bloque de crafteo existente en el archivo de configuración.
-    
-    Args:
-        job_key: Clave del job (ej: 'armero')
-        old_craft_name: Nombre (Text) del crafteo a reemplazar
-        new_crafting_block: Nuevo bloque de código Lua
-    
-    Returns:
-        str: Contenido completo del archivo con el crafteo reemplazado,
-             o None si no se encontró el crafteo
-    """
+    """Reemplaza un bloque de crafteo existente por nombre."""
     content = get_config_file_content(job_key)
     if not content:
         return None
-    
     crafteos = parse_crafting_blocks(content)
-    
-    # Buscar el crafteo por nombre
-    target = None
-    for c in crafteos:
-        if c.get('nombre') == old_craft_name:
-            target = c
-            break
-    
+    target = next((c for c in crafteos if c.get('nombre') == old_craft_name), None)
     if not target:
         return None
-    
-    # Reemplazar el bloque viejo por el nuevo
-    start = target['_start_pos']
-    end = target['_end_pos']
-    
-    new_content = content[:start] + new_crafting_block + content[end:]
-    return new_content
+    return content[:target['_start_pos']] + new_crafting_block + content[target['_end_pos']:]
 
 
 def delete_crafting_from_config(job_key: str, craft_name: str) -> str:
-    """
-    Elimina un bloque de crafteo del archivo de configuración.
-    
-    Args:
-        job_key: Clave del job
-        craft_name: Nombre (Text) del crafteo a eliminar
-    
-    Returns:
-        str: Contenido completo del archivo sin el crafteo,
-             o None si no se encontró
-    """
+    """Elimina un bloque de crafteo del archivo de configuración."""
     content = get_config_file_content(job_key)
     if not content:
         return None
-    
     crafteos = parse_crafting_blocks(content)
-    
-    target = None
-    for c in crafteos:
-        if c.get('nombre') == craft_name:
-            target = c
-            break
-    
+    target = next((c for c in crafteos if c.get('nombre') == craft_name), None)
     if not target:
         return None
-    
-    start = target['_start_pos']
-    end = target['_end_pos']
-    
-    # Eliminar el bloque y la coma/espacios sobrantes
-    before = content[:start].rstrip()
-    after = content[end:].lstrip()
-    
-    # Limpiar coma sobrante
+
+    before = content[:target['_start_pos']].rstrip()
+    after = content[target['_end_pos']:].lstrip()
+
     if before.endswith(','):
         before = before[:-1]
     if after.startswith(','):
         after = after[1:].lstrip()
-    
-    new_content = before + "\n" + after
-    return new_content
 
+    return before + "\n" + after
 
-# ============================================================================
-# COMENTAR / DESCOMENTAR CRAFTEOS (desactivar/activar)
-# ============================================================================
 
 def comment_crafting_in_config(job_key: str, craft_name: str) -> str:
-    """
-    Comenta (desactiva) un bloque de crafteo existente en el archivo de configuración.
-    Cada línea del bloque se prefija con '-- '.
-    
-    Args:
-        job_key: Clave del job
-        craft_name: Nombre (Text) del crafteo a comentar
-    
-    Returns:
-        str: Contenido completo del archivo con el crafteo comentado,
-             o None si no se encontró
-    """
+    """Comenta (desactiva) un bloque de crafteo existente."""
     content = get_config_file_content(job_key)
     if not content:
         return None
-    
     crafteos = parse_crafting_blocks(content)
-    
-    target = None
-    for c in crafteos:
-        if c.get('nombre') == craft_name:
-            target = c
-            break
-    
+    target = next((c for c in crafteos if c.get('nombre') == craft_name), None)
     if not target:
         return None
-    
+
     start = target['_start_pos']
     end = target['_end_pos']
-    
     raw_block = content[start:end]
-    
-    # Comentar cada línea del bloque
-    commented_lines = []
-    for line in raw_block.split('\n'):
-        commented_lines.append('-- ' + line)
-    commented_block = '\n'.join(commented_lines)
-    
-    # Determinar el contexto: antes y después del bloque
+
+    commented_block = '\n'.join('-- ' + line for line in raw_block.split('\n'))
+
     before = content[:start].rstrip()
     after_raw = content[end:]
     after = after_raw.lstrip(' \t')
-    stripped_len = len(after_raw) - len(after)
-    
-    # Contar cuántos crafteos activos quedan después de comentar este
-    otros_activos = [c for c in crafteos if c.get('nombre') != craft_name]
-    
+
     if after.startswith(','):
-        # Hay coma después del bloque → hay más crafteos después
-        # Eliminar la coma del contenido activo (queda parte del comentario)
-        after_pos = end + stripped_len + 1  # +1 para saltar la coma
-        
-        # Asegurar que before termina en newline
-        if not before.endswith('\n'):
-            before_with_nl = before + '\n'
-        else:
-            before_with_nl = before
-        
-        new_content = before_with_nl + commented_block + '\n' + content[after_pos:]
-    else:
-        # No hay coma después → este es el último crafteo o único
-        # Limpiar coma antes del bloque
-        if before.endswith(','):
-            before = before[:-1]
-        
+        after_pos = end + (len(after_raw) - len(after)) + 1
         if not before.endswith('\n'):
             before += '\n'
-        
+        new_content = before + commented_block + '\n' + content[after_pos:]
+    else:
+        if before.endswith(','):
+            before = before[:-1]
+        if not before.endswith('\n'):
+            before += '\n'
         new_content = before + commented_block + '\n' + after
-    
+
     return new_content
 
 
 def parse_commented_blocks(lua_content: str) -> list:
-    """
-    Busca bloques de crafteo comentados (desactivados) en un archivo Lua.
-    Un bloque comentado son líneas consecutivas que empiezan con '-- '
-    y contienen campos de crafteo como Text, Items, etc.
-    
-    Args:
-        lua_content: Contenido del archivo .lua
-    
-    Returns:
-        list de dicts con: 'nombre', 'descripcion', '_commented_text',
-        '_start_pos', '_end_pos' para cada bloque comentado
-    """
+    """Busca bloques de crafteo comentados (desactivados) en un archivo Lua."""
     bloques = []
     if not lua_content:
         return bloques
-    
+
     lines = lua_content.split('\n')
     i = 0
-    
+
     while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        
-        # Detectar inicio de un bloque comentado: -- {
+        stripped = lines[i].strip()
         if stripped == '-- {' or stripped == '-- {,':
-            block_lines = [line]
+            block_lines = [lines[i]]
             block_start_line = i
             j = i + 1
-            
-            # Recoger líneas consecutivas comentadas
             while j < len(lines):
-                next_line = lines[j]
-                next_stripped = next_line.strip()
-                
-                # Línea comentada o línea vacía entre comentarios
+                next_stripped = lines[j].strip()
                 if next_stripped.startswith('--'):
-                    block_lines.append(next_line)
-                    # Detectar el cierre del bloque: -- }, o -- }
+                    block_lines.append(lines[j])
                     if next_stripped in ('-- },', '-- }', '-- },'):
                         j += 1
                         break
                 elif next_stripped == '':
-                    block_lines.append(next_line)
+                    block_lines.append(lines[j])
                 else:
                     break
                 j += 1
-            
-            # Verificar que el bloque contiene un crafteo (tiene Text y Items)
+
             full_commented = '\n'.join(block_lines)
             if 'Text' in full_commented and 'Items' in full_commented:
-                # Descomentar para parsear los campos
                 uncommented = '\n'.join(
-                    l.strip().removeprefix('-- ').removeprefix('--') 
-                    for l in block_lines 
-                    if l.strip().startswith('--')
+                    l.strip().removeprefix('-- ').removeprefix('--')
+                    for l in block_lines if l.strip().startswith('--')
                 )
-                
-                # Extraer nombre y descripción del bloque descomentado
                 nombre = ''
                 descripcion = ''
                 m_text = re.search(r'Text\s*=\s*"([^"]*)"', uncommented)
-                if m_text:
-                    nombre = m_text.group(1)
+                if m_text: nombre = m_text.group(1)
                 m_desc = re.search(r'Desc\s*=\s*"([^"]*)"', uncommented)
-                if m_desc:
-                    descripcion = m_desc.group(1)
-                
-                # Calcular posiciones en el string original
+                if m_desc: descripcion = m_desc.group(1)
+
                 pos_start = sum(len(lines[k]) + 1 for k in range(block_start_line))
                 pos_end = sum(len(lines[k]) + 1 for k in range(j))
-                
+
                 bloques.append({
                     'nombre': nombre,
                     'descripcion': descripcion,
@@ -808,47 +579,28 @@ def parse_commented_blocks(lua_content: str) -> list:
                     '_start_line': block_start_line,
                     '_end_line': j
                 })
-            
             i = j
         else:
             i += 1
-    
+
     return bloques
 
 
 def uncomment_crafting_in_config(job_key: str, craft_name: str) -> str:
-    """
-    Descomenta (reactiva) un bloque de crafteo comentado en el archivo de configuración.
-    
-    Args:
-        job_key: Clave del job
-        craft_name: Nombre (Text) del crafteo comentado a reactivar
-    
-    Returns:
-        str: Contenido completo del archivo con el crafteo descomentado,
-             o None si no se encontró
-    """
+    """Descomenta (reactiva) un bloque de crafteo comentado."""
     content = get_config_file_content(job_key)
     if not content:
         return None
-    
+
     commented_blocks = parse_commented_blocks(content)
-    
-    target = None
-    for b in commented_blocks:
-        if b.get('nombre') == craft_name:
-            target = b
-            break
-    
+    target = next((b for b in commented_blocks if b.get('nombre') == craft_name), None)
     if not target:
         return None
-    
+
     start = target['_start_pos']
     end = target['_end_pos']
-    
     commented_text = content[start:end]
-    
-    # Descomentar: quitar '-- ' del inicio de cada línea
+
     uncommented_lines = []
     for line in commented_text.split('\n'):
         stripped = line.strip()
@@ -858,29 +610,92 @@ def uncomment_crafting_in_config(job_key: str, craft_name: str) -> str:
             uncommented_lines.append(line.replace('--', '', 1))
         else:
             uncommented_lines.append(line)
-    
-    uncommented_block = '\n'.join(uncommented_lines)
-    
-    # Limpiar: la última línea puede ser "-- ," que queda como " ,"
-    # Asegurar que el bloque termina correctamente con },
-    uncommented_block = uncommented_block.rstrip()
+
+    uncommented_block = '\n'.join(uncommented_lines).rstrip()
     if not uncommented_block.endswith('},') and not uncommented_block.endswith('}'):
         uncommented_block = uncommented_block.rstrip(',').rstrip() + '}'
-    
-    # Verificar que hay coma de separación adecuada
+
     before = content[:start].rstrip()
     after = content[end:].lstrip()
-    
-    # Si hay un bloque activo antes, asegurar coma
+
     if before and before[-1] == '}':
         before += ','
-    elif before and before[-1] == ',':
-        pass  # Ya tiene coma
-    
-    # Si hay un bloque activo después, asegurar coma al final
     if after and after[0] == '{':
         if not uncommented_block.endswith(','):
             uncommented_block += ','
-    
-    new_content = before + '\n' + uncommented_block + '\n' + after
-    return new_content
+
+    return before + '\n' + uncommented_block + '\n' + after
+
+
+# ============================================================================
+# VALIDACIÓN DE SINTAXIS LUA
+# ============================================================================
+
+def validate_lua_syntax(lua_code: str) -> list:
+    """
+    Valida la sintaxis básica de un bloque o archivo Lua de crafteo.
+    Retorna lista de errores (vacía = OK).
+    """
+    errors = []
+    depth = 0
+    in_string = False
+    in_comment = False
+
+    for i, c in enumerate(lua_code):
+        if in_comment:
+            if c == '\n':
+                in_comment = False
+            continue
+
+        if not in_string and i + 1 < len(lua_code) and lua_code[i:i+2] == '--':
+            in_comment = True
+            continue
+
+        if c == '"' and not in_comment:
+            if i > 0 and lua_code[i-1] == '\\':
+                continue
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth < 0:
+                errors.append(f"Llave de cierre '}}' sin apertura (posición {i})")
+                break
+
+    if depth > 0:
+        errors.append(f"Faltan {depth} llave(s) de cierre '}}'")
+
+    if in_string:
+        errors.append("String sin cerrar (falta comilla de cierre)")
+
+    # Campos obligatorios solo en bloques de crafteo individuales
+    if 'Config.' not in lua_code:
+        required = ['TakeItems', 'Text', 'Reward', 'Items', 'Type']
+        for field in required:
+            if field not in lua_code:
+                errors.append(f"Falta campo obligatorio: {field}")
+
+    return errors
+
+
+def validate_full_config(lua_code: str) -> list:
+    """Valida un archivo config completo. Retorna lista de errores."""
+    errors = validate_lua_syntax(lua_code)
+
+    if not re.match(r'Config\.\w+\s*=\s*\{', lua_code):
+        errors.append("El archivo debe empezar con Config.NombreJob = {")
+
+    close = _find_main_table_close(lua_code)
+    if close == -1 and 'Config.' in lua_code:
+        errors.append("No se encontró el cierre de la tabla principal")
+
+    if 'table.insert(Config.Crafting' not in lua_code:
+        errors.append("Falta el bucle for...table.insert(Config.Crafting, item)")
+
+    return errors

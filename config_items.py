@@ -1,133 +1,70 @@
 """
 Configuración de datos para el generador de crafteos RedM
-Contiene todos los jobs, items de recompensa e ingredientes organizados por categoría
+Items, jobs, categorías, animaciones y packs para VORP Crafting System
 """
-import os
 import json
 from pathlib import Path
 
-# ============================================================================
-# PATH DE CONFIGURACIONES (relativo para Streamlit Cloud)
-# ============================================================================
-# Obtener el directorio del script actual
 BASE_DIR = Path(__file__).parent
-CONFIG_PATH = BASE_DIR / "configs"
 DATA_PATH = BASE_DIR / "data"
 
-# ============================================================================
-# CARGAR TODOS LOS ITEMS DESDE items.json
-# ============================================================================
+
 def load_all_items():
-    """Carga todos los items del archivo items.json y los convierte en diccionario"""
+    """Carga todos los items del archivo items.json"""
     items_file = DATA_PATH / "items.json"
     try:
         with open(items_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            # Crear diccionario {item_id: label}
             return {item['item']: item['label'] for item in data.get('items', [])}
     except Exception as e:
         print(f"Error cargando items.json: {e}")
         return {}
 
-# Cargar todos los items al iniciar
+
 ALL_ITEMS = load_all_items()
 
 # ============================================================================
-# JOBS/CATEGORÍAS DISPONIBLES
+# JOBS BASE - Metadatos de oficios conocidos
+# Se extiende dinámicamente con configs descubiertas en Drive
 # ============================================================================
-# Los 'category' deben coincidir con los ident de Config.Categories en config.lua
-JOBS = {
-    'agricultor': {
-        'nombre': '🌾 Agricultor',
-        'category': 'agricultor',  # Coincide con config.lua
-        'job_value': 0,  # 0 = cualquiera puede craftear
-    },
-    'armero': {
-        'nombre': '🔫 Armero',
-        'category': 'Armero',  # Coincide con config.lua (mayúscula)
-        'job_value': 0,
-    },
-    'artesano': {
-        'nombre': '🎨 Artesano',
-        'category': 'Artesano',  # Corregido: mayúscula en config.lua
-        'job_value': 0,
-    },
-    'bandas': {
-        'nombre': '💀 Bandas',
-        'category': 'MesaHerreroBanda',  # Usa Mesa Herrero de banda
-        'job_value': 0,
-    },
-    'cocinaDulce': {
-        'nombre': '🍰 Cocina Dulce',
-        'category': 'CocinaDulce',  # Corregido: CamelCase en config.lua
-        'job_value': 0,
-    },
-    'cocinaMixta': {
-        'nombre': '🍲 Cocina Mixta',
-        'category': 'CocinaMixta',  # Corregido: CamelCase en config.lua
-        'job_value': 0,
-    },
-    'cocinaPacks': {
-        'nombre': '📦 Cocina Packs',
-        'category': 'CocinaPacks',  # Corregido: CamelCase en config.lua
-        'job_value': 0,
-    },
-    'cocinaTier1': {
-        'nombre': '🍳 Cocina Tier 1',
-        'category': 'CocinaTier1',  # Corregido: CamelCase en config.lua
-        'job_value': 0,
-    },
-    'cocinaTier2': {
-        'nombre': '👨‍🍳 Cocina Tier 2',
-        'category': 'CocinaTier2',  # Corregido: CamelCase en config.lua
-        'job_value': 0,
-    },
-    'cocinaTier3': {
-        'nombre': '👩‍🍳 Cocina Tier 3',
-        'category': 'CocinaTier3',  # Corregido: CamelCase en config.lua
-        'job_value': 0,
-    },
-    'destilador': {
-        'nombre': '🥃 Destilador',
-        'category': 'Destilador',  # Coincide con config.lua
-        'job_value': 0,
-    },
-    'distribuidora': {
-        'nombre': '🚚 Distribuidora',
-        'category': 'Distribuidora',  # Corregido: mayúscula en config.lua
-        'job_value': 0,
-    },
-    'establo': {
-        'nombre': '🐴 Establo',
-        'category': 'Establo',  # Coincide con config.lua
-        'job_value': 0,
-    },
-    'ganadero': {
-        'nombre': '🐄 Ganadero',
-        'category': 'Ganadero',  # Corregido: mayúscula en config.lua
-        'job_value': 0,
-    },
-    'medicos': {
-        'nombre': '⚕️ Médicos',
-        'category': 'Medico',  # Coincide con config.lua
-        'job_value': '{"medicoAR", "medicoBW", "medicoMF"}',
-    },
-    'perista': {
-        'nombre': '💰 Perista',
-        'category': 'Perista',  # Corregido: mayúscula en config.lua
-        'job_value': 0,
-    },
-    'pescadero': {
-        'nombre': '🎣 Pescadero',
-        'category': 'Pescadero',  # Corregido: mayúscula en config.lua
-        'job_value': 0,
-    },
-    'tabacalero': {
-        'nombre': '🚬 Tabacalero',
-        'category': 'Tabacalero',  # Corregido: mayúscula en config.lua
-        'job_value': 0,
-    },
+BASE_JOBS = {
+    'agricultor': {'nombre': '🌾 Agricultor', 'category': 'agricultor', 'job_value': 0},
+    'armero': {'nombre': '🔫 Armero', 'category': 'Armero', 'job_value': 0},
+    'artesano': {'nombre': '🎨 Artesano', 'category': 'Artesano', 'job_value': 0},
+    'bandas': {'nombre': '💀 Bandas', 'category': 'MesaHerreroBanda', 'job_value': 0},
+    'cocinaDulce': {'nombre': '🍰 Cocina Dulce', 'category': 'CocinaDulce', 'job_value': 0},
+    'cocinaMixta': {'nombre': '🍲 Cocina Mixta', 'category': 'CocinaMixta', 'job_value': 0},
+    'cocinaPacks': {'nombre': '📦 Cocina Packs', 'category': 'CocinaPacks', 'job_value': 0},
+    'cocinaTier1': {'nombre': '🍳 Cocina Tier 1', 'category': 'CocinaTier1', 'job_value': 0},
+    'cocinaTier2': {'nombre': '👨‍🍳 Cocina Tier 2', 'category': 'CocinaTier2', 'job_value': 0},
+    'cocinaTier3': {'nombre': '👩‍🍳 Cocina Tier 3', 'category': 'CocinaTier3', 'job_value': 0},
+    'destilador': {'nombre': '🥃 Destilador', 'category': 'Destilador', 'job_value': 0},
+    'distribuidora': {'nombre': '🚚 Distribuidora', 'category': 'Distribuidora', 'job_value': 0},
+    'establo': {'nombre': '🐴 Establo', 'category': 'Establo', 'job_value': 0},
+    'ganadero': {'nombre': '🐄 Ganadero', 'category': 'Ganadero', 'job_value': 0},
+    'medicos': {'nombre': '⚕️ Médicos', 'category': 'Medico', 'job_value': '{"medicoAR", "medicoBW", "medicoMF"}'},
+    'perista': {'nombre': '💰 Perista', 'category': 'Perista', 'job_value': 0},
+    'pescadero': {'nombre': '🎣 Pescadero', 'category': 'Pescadero', 'job_value': 0},
+    'tabacalero': {'nombre': '🚬 Tabacalero', 'category': 'Tabacalero', 'job_value': 0},
 }
+
+
+def get_job_metadata(key):
+    """Obtiene metadatos de un job. Genera valores por defecto si no es un job conocido."""
+    if key in BASE_JOBS:
+        return BASE_JOBS[key]
+    config_name = key[0].upper() + key[1:] if key else key
+    return {
+        'nombre': f'📄 {key.replace("_", " ").title()}',
+        'category': config_name,
+        'job_value': 0,
+    }
+
+
+def get_job_display_name(key):
+    """Nombre legible para un job."""
+    return get_job_metadata(key)['nombre']
+
 
 # ============================================================================
 # TIPOS DE CRAFTEO
@@ -138,69 +75,32 @@ TIPOS_CRAFTEO = {
 }
 
 # ============================================================================
-# ITEMS DE RECOMPENSA - TODOS LOS ITEMS PARA TODAS LAS CATEGORÍAS
-# ============================================================================
-# Ahora todos los jobs tienen acceso a todos los items del JSON
-def get_items_recompensa():
-    """Genera el diccionario de items de recompensa con todos los items para cada job"""
-    jobs_list = [
-        'agricultor', 'armero', 'artesano', 'bandas', 
-        'cocinaDulce', 'cocinaMixta', 'cocinaPacks', 
-        'cocinaTier1', 'cocinaTier2', 'cocinaTier3',
-        'destilador', 'distribuidora', 'establo', 
-        'ganadero', 'medicos', 'perista', 'pescadero', 'tabacalero'
-    ]
-    return {job: ALL_ITEMS.copy() for job in jobs_list}
-
-ITEMS_RECOMPENSA = get_items_recompensa()
-
-# ============================================================================
-# ITEMS INGREDIENTES - TODOS LOS ITEMS PARA TODAS LAS CATEGORÍAS
-# ============================================================================
-def get_items_ingredientes():
-    """Genera el diccionario de ingredientes con todos los items para cada job"""
-    jobs_list = [
-        'comunes', 'agricultor', 'armero', 'artesano', 'bandas', 
-        'cocinaDulce', 'cocinaMixta', 'cocinaPacks', 
-        'cocinaTier1', 'cocinaTier2', 'cocinaTier3',
-        'destilador', 'distribuidora', 'establo', 
-        'ganadero', 'medicos', 'perista', 'pescadero', 'tabacalero'
-    ]
-    return {job: ALL_ITEMS.copy() for job in jobs_list}
-
-ITEMS_INGREDIENTES = get_items_ingredientes()
-
-# ============================================================================
-# ANIMACIONES DISPONIBLES (sincronizadas con Config.Animations del servidor)
+# ANIMACIONES DISPONIBLES (sincronizadas con Config.Animations)
 # ============================================================================
 ANIMACIONES = {
-    'craft': '🛠️ Crafteo genérico (por defecto)',
-    'CocinaTier3': '🧂 Cocina avanzada (con salero)',
-    'spindlecook': '🍖 Asar en pincho (carne en palo)',
+    'craft': '🛠️ Crafteo genérico',
+    'CocinaTier3': '🧂 Cocina avanzada (salero)',
+    'spindlecook': '🍖 Asar en pincho',
     'knifecooking': '🔪 Cocinar con cuchillo',
     'campfire': '🔥 Encender fogata',
 }
 
 # ============================================================================
-# CATEGORÍAS DE CRAFTEO DISPONIBLES (sincronizadas con Config.Categories)
+# CATEGORÍAS DE CRAFTEO (sincronizadas con Config.Categories del servidor)
 # ============================================================================
-# Los ident deben coincidir EXACTAMENTE con los del config.lua del servidor
 CATEGORIAS_CRAFTEO = {
-    # Categorías generales
-    'food': '🍔 Comida (general)',
-    'items': '📦 Items (general)',
+    'food': '🍔 Comida',
+    'items': '📦 Items',
     'weapons': '🔫 Armas',
     'meleeweapons': '🗡️ Armas cuerpo a cuerpo',
-    'cocina': '🍳 Cocina (general)',
-    'empty': '📝 Elaboraciones (vacío)',
-    # Cocina por tiers
-    'CocinaTier1': '🍳 Cocina Tier 1 (básica)',
-    'CocinaTier2': '👨‍🍳 Cocina Tier 2 (media)',
-    'CocinaTier3': '👩‍🍳 Cocina Tier 3 (avanzada)',
+    'cocina': '🍳 Cocina',
+    'empty': '📝 Elaboraciones',
+    'CocinaTier1': '🍳 Cocina Tier 1',
+    'CocinaTier2': '👨‍🍳 Cocina Tier 2',
+    'CocinaTier3': '👩‍🍳 Cocina Tier 3',
     'CocinaDulce': '🍰 Cocina Dulce',
     'CocinaMixta': '🍲 Cocina Mixta',
-    'CocinaPacks': '🍽️ Cocina Packs (especialidades)',
-    # Oficios
+    'CocinaPacks': '🍽️ Cocina Packs',
     'agricultor': '🌾 Agricultor',
     'Ganadero': '🐄 Ganadero',
     'Pescadero': '🎣 Pescadero',
@@ -212,7 +112,14 @@ CATEGORIAS_CRAFTEO = {
     'Establo': '🐴 Establo',
     'Perista': '💎 Perista',
     'Medico': '⚕️ Médico',
-    # Bandas
     'MesaHerreroBanda': '🛠️ Mesa Herrero (Banda)',
     'MesaEnfermeriaBanda': '🩺 Mesa Enfermería (Banda)',
 }
+
+# ============================================================================
+# PACKS PREDEFINIDOS
+# ============================================================================
+PACKS_PREDEFINIDOS = [
+    "", "comun", "mejicana", "afroamericana", "oriental",
+    "inglesa", "nativo", "campero",
+]

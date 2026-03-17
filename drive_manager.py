@@ -137,7 +137,7 @@ def _normalize_private_key(pk: str) -> str:
     return pk
 
 
-def get_service(secrets_info):
+def get_service(secrets_info=None):
     """
     Obtiene el servicio autenticado de Google Drive.
     Acepta un dict-like (incluido AttrDict de Streamlit).
