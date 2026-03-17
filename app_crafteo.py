@@ -71,7 +71,7 @@ st.set_page_config(
     page_title="Craftsman's Forge — RedM",
     page_icon="⚒️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ============================================================================
@@ -189,8 +189,10 @@ st.markdown("""
     }
     /* Code */
     code { background:var(--brown-dark) !important; color:var(--gold) !important; }
-    /* Hide branding */
+    /* Hide branding + sidebar */
     #MainMenu {visibility:hidden;} footer {visibility:hidden;}
+    [data-testid="stSidebar"] {display:none !important;}
+    [data-testid="collapsedControl"] {display:none !important;}
     /* Divider */
     .divider { text-align:center; margin:12px 0; color:var(--gold); letter-spacing:8px; font-size:.9rem; }
 </style>
@@ -255,191 +257,171 @@ if not st.session_state.drive_connected:
     st.stop()
 
 # ============================================================================
-# SIDEBAR
+# DATOS DE DRIVE
 # ============================================================================
-with st.sidebar:
-    st.markdown('<div style="text-align:center; padding:5px 0 15px"><span style="font-family:Rye,cursive; font-size:1.3rem; color:#c9a227;">⭐ REGISTRO ⭐</span></div>', unsafe_allow_html=True)
+config_keys = get_available_configs()
 
-    # Drive status — siempre conectado (la app se bloquea si no)
-    st.success("☁️ Google Drive conectado")
-
-    st.markdown('<div class="divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-
-    # Stats
-    config_keys = get_available_configs()
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f'<div class="stat-box"><div class="num">{len(ALL_ITEMS):,}</div><div class="lbl">Items</div></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f'<div class="stat-box"><div class="num">{len(config_keys)}</div><div class="lbl">Configs</div></div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-
-    # Jobs conocidos
-    st.markdown('<div style="text-align:center"><span style="font-family:Cinzel,serif;font-size:.85rem;color:#c9a227;text-transform:uppercase;letter-spacing:2px">Oficios Disponibles</span></div>', unsafe_allow_html=True)
-    badges = " ".join(
-        f'<span style="display:inline-block;padding:4px 8px;margin:2px;background:rgba(74,55,40,.9);border:1px solid #8b6914;color:#c9a227;font-family:Cinzel,serif;font-size:.7rem;border-radius:2px;text-transform:uppercase;letter-spacing:1px">{get_job_display_name(k)}</span>'
-        for k in config_keys
-    )
-    st.markdown(f'<div style="line-height:2.2;margin:8px 0">{badges}</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="divider">◆ ◆ ◆</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;font-family:IM Fell English,serif;color:#d4c5a9;font-style:italic;padding:8px;font-size:.85rem">"En el Oeste, los artesanos forjan su destino"<br><small>~ La Hermandad ~</small></div>', unsafe_allow_html=True)
-
-
-# ============================================================================
-# SELECTOR DE CONFIG (DRIVE)
-# ============================================================================
-col_sel, col_refresh = st.columns([5, 1])
-with col_sel:
-    sel_config = st.selectbox(
-        "☁️ Seleccionar Config de Drive",
-        options=config_keys if config_keys else [],
-        format_func=lambda x: f"📄 config_{x}.lua — {get_job_display_name(x)}",
-        key="main_config_select",
-        help="Archivos leídos directamente desde Google Drive",
-    )
-with col_refresh:
-    st.write("")
-    st.write("")
-    if st.button("🔄", key="refresh_configs", help="Refrescar archivos de Drive"):
+# Info bar
+col_info1, col_info2, col_info3 = st.columns([2, 2, 1])
+with col_info1:
+    st.success(f"☁️ Drive conectado — {len(config_keys)} configs")
+with col_info2:
+    st.info(f"📦 {len(ALL_ITEMS):,} items disponibles")
+with col_info3:
+    if st.button("🔄 Refrescar Drive", key="refresh_configs", use_container_width=True):
         drive_manager.clear_cache()
         st.rerun()
 
-if not config_keys:
-    st.warning("No se encontraron archivos de configuración en Drive. Usa la sección **Crear Nuevo Config** más abajo.")
-    sel_config = None
+# ============================================================================
+# TABS PRINCIPALES
+# ============================================================================
+tab_recetas, tab_nueva, tab_config, tab_editor = st.tabs([
+    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config", "✏️ Editor Lua"
+])
+
 
 # ============================================================================
-# SECCIÓN 1: GESTIONAR RECETAS
+# TAB 1: GESTIONAR RECETAS
 # ============================================================================
-if sel_config:
-    content = get_config_file_content(sel_config)
-    if not content:
-        st.error(f"No se pudo leer config_{sel_config}.lua desde Drive")
+with tab_recetas:
+    if not config_keys:
+        st.warning("No se encontraron archivos en Drive. Crea uno en la pestaña **Nuevo Config**.")
     else:
-        crafteos = parse_crafting_blocks(content)
-        comentados = parse_commented_blocks(content)
+        sel_config = st.selectbox(
+            "☁️ Seleccionar Config de Drive",
+            options=config_keys,
+            format_func=lambda x: f"📄 config_{x}.lua — {get_job_display_name(x)}",
+            key="tab1_config_select",
+        )
 
-        st.markdown('<div class="card"><div class="card-title">📋 Recetas del Config</div></div>', unsafe_allow_html=True)
+        content = get_config_file_content(sel_config)
+        if not content:
+            st.error(f"No se pudo leer config_{sel_config}.lua desde Drive")
+        else:
+            crafteos = parse_crafting_blocks(content)
+            comentados = parse_commented_blocks(content)
 
-        # Resumen rápido
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Recetas activas", len(crafteos))
-        c2.metric("Desactivadas", len(comentados))
-        c3.metric("Líneas", content.count('\n') + 1)
+            st.markdown('<div class="card"><div class="card-title">📋 Recetas del Config</div></div>', unsafe_allow_html=True)
 
-        # --- Crafteos activos ---
-        if crafteos:
-            st.markdown(f"**Recetas activas ({len(crafteos)})**")
-            for idx, craft in enumerate(crafteos):
-                nombre_c = craft.get('nombre', 'Sin nombre')
-                desc_c = craft.get('descripcion', '')
-                cat_c = craft.get('categoria', '')
-                pack_c = craft.get('pack', '')
-                n_ing = len(craft.get('ingredientes', []))
-                n_rew = len(craft.get('recompensas', []))
-                nivel_c = craft.get('nivel_minimo', 0)
+            # Resumen rápido
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Recetas activas", len(crafteos))
+            c2.metric("Desactivadas", len(comentados))
+            c3.metric("Líneas", content.count('\n') + 1)
 
-                label = f"⚒️ {nombre_c}"
-                if pack_c:
-                    label += f"  [Pack: {pack_c}]"
+            # --- Crafteos activos ---
+            if crafteos:
+                st.markdown(f"**Recetas activas ({len(crafteos)})**")
+                for idx, craft in enumerate(crafteos):
+                    nombre_c = craft.get('nombre', 'Sin nombre')
+                    desc_c = craft.get('descripcion', '')
+                    cat_c = craft.get('categoria', '')
+                    pack_c = craft.get('pack', '')
+                    n_ing = len(craft.get('ingredientes', []))
+                    n_rew = len(craft.get('recompensas', []))
+                    nivel_c = craft.get('nivel_minimo', 0)
 
-                with st.expander(label, expanded=False):
-                    col_info, col_act = st.columns([3, 1])
-                    with col_info:
-                        st.markdown(f"""
-                        <div class="card" style="padding:12px">
-                            <b>Descripción:</b> {desc_c or '—'}<br>
-                            <b>Categoría:</b> {cat_c} &nbsp;|&nbsp; <b>Nivel:</b> {nivel_c}<br>
-                            <b>Ingredientes:</b> {n_ing} &nbsp;|&nbsp; <b>Recompensas:</b> {n_rew}
-                        </div>
-                        """, unsafe_allow_html=True)
+                    label = f"⚒️ {nombre_c}"
+                    if pack_c:
+                        label += f"  [Pack: {pack_c}]"
 
-                        if craft.get('ingredientes'):
-                            for ing in craft['ingredientes']:
-                                lbl = ALL_ITEMS.get(ing.get('name', ''), ing.get('name', ''))
-                                st.markdown(f'<div class="item-row"><div><span class="name">{lbl}</span> <span class="id">({ing.get("name", "")})</span></div><span class="count">x{ing.get("count", 1)}</span></div>', unsafe_allow_html=True)
+                    with st.expander(label, expanded=False):
+                        col_info, col_act = st.columns([3, 1])
+                        with col_info:
+                            st.markdown(f"""
+                            <div class="card" style="padding:12px">
+                                <b>Descripción:</b> {desc_c or '—'}<br>
+                                <b>Categoría:</b> {cat_c} &nbsp;|&nbsp; <b>Nivel:</b> {nivel_c}<br>
+                                <b>Ingredientes:</b> {n_ing} &nbsp;|&nbsp; <b>Recompensas:</b> {n_rew}
+                            </div>
+                            """, unsafe_allow_html=True)
 
-                        if craft.get('recompensas'):
-                            for rew in craft['recompensas']:
-                                lbl = ALL_ITEMS.get(rew.get('name', ''), rew.get('name', ''))
-                                st.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {lbl}</span> <span class="id">({rew.get("name", "")})</span></div><span class="count" style="background:#00d26a">x{rew.get("count", 1)}</span></div>', unsafe_allow_html=True)
+                            if craft.get('ingredientes'):
+                                for ing in craft['ingredientes']:
+                                    lbl = ALL_ITEMS.get(ing.get('name', ''), ing.get('name', ''))
+                                    st.markdown(f'<div class="item-row"><div><span class="name">{lbl}</span> <span class="id">({ing.get("name", "")})</span></div><span class="count">x{ing.get("count", 1)}</span></div>', unsafe_allow_html=True)
 
-                    with col_act:
-                        # Desactivar
-                        if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{idx}", use_container_width=True):
-                            new_content = comment_crafting_in_config(sel_config, nombre_c)
+                            if craft.get('recompensas'):
+                                for rew in craft['recompensas']:
+                                    lbl = ALL_ITEMS.get(rew.get('name', ''), rew.get('name', ''))
+                                    st.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {lbl}</span> <span class="id">({rew.get("name", "")})</span></div><span class="count" style="background:#00d26a">x{rew.get("count", 1)}</span></div>', unsafe_allow_html=True)
+
+                        with col_act:
+                            # Desactivar
+                            if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{idx}", use_container_width=True):
+                                new_content = comment_crafting_in_config(sel_config, nombre_c)
+                                if new_content and save_config_file(sel_config, new_content):
+                                    st.success(f"'{nombre_c}' desactivado en Drive")
+                                    drive_manager.clear_cache()
+                                    st.rerun()
+                                else:
+                                    st.error("Error al desactivar")
+
+                            # Eliminar con confirmación
+                            if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{idx}", use_container_width=True):
+                                st.session_state[f"_confirm_del_{sel_config}_{idx}"] = True
+
+                            if st.session_state.get(f"_confirm_del_{sel_config}_{idx}"):
+                                st.warning("¿Seguro?")
+                                ca, cb = st.columns(2)
+                                with ca:
+                                    if st.button("Sí", key=f"yes_{sel_config}_{idx}", use_container_width=True):
+                                        new_content = delete_crafting_from_config(sel_config, nombre_c)
+                                        if new_content and save_config_file(sel_config, new_content):
+                                            st.success(f"'{nombre_c}' eliminado de Drive")
+                                            drive_manager.clear_cache()
+                                            del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
+                                            st.rerun()
+                                with cb:
+                                    if st.button("No", key=f"no_{sel_config}_{idx}", use_container_width=True):
+                                        del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
+                                        st.rerun()
+
+                        # Código raw
+                        with st.expander("🔍 Ver código Lua"):
+                            st.code(craft.get('_raw_block', ''), language="lua")
+            else:
+                st.info("No hay recetas activas en este config.")
+
+            # --- Crafteos desactivados ---
+            if comentados:
+                st.markdown("---")
+                st.markdown(f"**Recetas desactivadas ({len(comentados)})**")
+                for idx_d, bloque_d in enumerate(comentados):
+                    col_d1, col_d2 = st.columns([4, 1])
+                    with col_d1:
+                        st.markdown(f'<div class="item-row" style="border-left-color:#ff4444;opacity:.7"><div><span class="name">🚫 {bloque_d.get("nombre", "?")}</span> <span class="id">{bloque_d.get("descripcion", "")}</span></div></div>', unsafe_allow_html=True)
+                    with col_d2:
+                        if st.button("✅ Reactivar", key=f"react_{sel_config}_{idx_d}", use_container_width=True):
+                            new_content = uncomment_crafting_in_config(sel_config, bloque_d.get('nombre', ''))
                             if new_content and save_config_file(sel_config, new_content):
-                                st.success(f"'{nombre_c}' desactivado en Drive")
+                                st.success(f"'{bloque_d.get('nombre', '')}' reactivado en Drive")
                                 drive_manager.clear_cache()
                                 st.rerun()
                             else:
-                                st.error("Error al desactivar")
-
-                        # Eliminar con confirmación
-                        if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{idx}", use_container_width=True):
-                            st.session_state[f"_confirm_del_{sel_config}_{idx}"] = True
-
-                        if st.session_state.get(f"_confirm_del_{sel_config}_{idx}"):
-                            st.warning("¿Seguro?")
-                            ca, cb = st.columns(2)
-                            with ca:
-                                if st.button("Sí", key=f"yes_{sel_config}_{idx}", use_container_width=True):
-                                    new_content = delete_crafting_from_config(sel_config, nombre_c)
-                                    if new_content and save_config_file(sel_config, new_content):
-                                        st.success(f"'{nombre_c}' eliminado de Drive")
-                                        drive_manager.clear_cache()
-                                        del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
-                                        st.rerun()
-                            with cb:
-                                if st.button("No", key=f"no_{sel_config}_{idx}", use_container_width=True):
-                                    del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
-                                    st.rerun()
-
-                    # Código raw
-                    with st.expander("🔍 Ver código Lua"):
-                        st.code(craft.get('_raw_block', ''), language="lua")
-        else:
-            st.info("No hay recetas activas en este config.")
-
-        # --- Crafteos desactivados ---
-        if comentados:
-            st.markdown("---")
-            st.markdown(f"**Recetas desactivadas ({len(comentados)})**")
-            for idx_d, bloque_d in enumerate(comentados):
-                col_d1, col_d2 = st.columns([4, 1])
-                with col_d1:
-                    st.markdown(f'<div class="item-row" style="border-left-color:#ff4444;opacity:.7"><div><span class="name">🚫 {bloque_d.get("nombre", "?")}</span> <span class="id">{bloque_d.get("descripcion", "")}</span></div></div>', unsafe_allow_html=True)
-                with col_d2:
-                    if st.button("✅ Reactivar", key=f"react_{sel_config}_{idx_d}", use_container_width=True):
-                        new_content = uncomment_crafting_in_config(sel_config, bloque_d.get('nombre', ''))
-                        if new_content and save_config_file(sel_config, new_content):
-                            st.success(f"'{bloque_d.get('nombre', '')}' reactivado en Drive")
-                            drive_manager.clear_cache()
-                            st.rerun()
-                        else:
-                            st.error("Error al reactivar la receta")
+                                st.error("Error al reactivar la receta")
 
 
 # ============================================================================
-# SECCIÓN 2: NUEVA RECETA / EDITAR
+# TAB 2: NUEVA RECETA / EDITAR
 # ============================================================================
-st.markdown("---")
-st.markdown('<div class="card"><div class="card-title">➕ Nueva Receta / Editar</div></div>', unsafe_allow_html=True)
+with tab_nueva:
+    if not config_keys:
+        st.warning("Crea un config primero en la pestaña **Nuevo Config**.")
+    else:
+        col_form, col_preview = st.columns([1, 1], gap="large")
 
-if not config_keys:
-    st.warning("Crea un config primero en la sección de abajo.")
-else:
-    col_form, col_preview = st.columns([1, 1], gap="large")
+        with col_form:
+            st.markdown('<div class="card"><div class="card-title">📝 Formulario de Receta</div></div>', unsafe_allow_html=True)
 
-    with col_form:
-        st.markdown('<div class="card"><div class="card-title">📝 Formulario de Receta</div></div>', unsafe_allow_html=True)
-
-        # Config destino — usa el mismo selector principal
-        config_destino = sel_config
-        st.info(f"Config destino: **config_{config_destino}.lua**")
-        job_data = get_job_metadata(config_destino)
+            # Config destino
+            config_destino = st.selectbox(
+                "Config destino",
+                options=config_keys,
+                format_func=lambda x: f"config_{x}.lua — {get_job_display_name(x)}",
+                key="tab2_config_dest",
+            )
+            job_data = get_job_metadata(config_destino)
 
         # Modo crear / editar
         modo = st.radio(
@@ -638,289 +620,289 @@ else:
                 except ValueError:
                     job_final = 0
 
-    # --- PREVIEW Y GUARDADO ---
-    with col_preview:
-        st.markdown('<div class="card"><div class="card-title">📤 Preview y Guardado</div></div>', unsafe_allow_html=True)
+        # --- PREVIEW Y GUARDADO ---
+        with col_preview:
+            st.markdown('<div class="card"><div class="card-title">📤 Preview y Guardado</div></div>', unsafe_allow_html=True)
 
-        errores = []
-        if not nombre: errores.append("Nombre del crafteo")
-        if not st.session_state.recompensas: errores.append("Al menos una recompensa")
-        if not st.session_state.ingredientes: errores.append("Al menos un ingrediente")
+            errores = []
+            if not nombre: errores.append("Nombre del crafteo")
+            if not st.session_state.recompensas: errores.append("Al menos una recompensa")
+            if not st.session_state.ingredientes: errores.append("Al menos un ingrediente")
 
-        if errores:
-            st.warning("**Campos requeridos:**")
-            for e in errores:
-                st.markdown(f"- {e}")
-        else:
-            # Generar descripción automática
-            desc = ", ".join(f"{i['count']}x {i['label']}" for i in st.session_state.ingredientes)
+            if errores:
+                st.warning("**Campos requeridos:**")
+                for e in errores:
+                    st.markdown(f"- {e}")
+            else:
+                # Generar descripción automática
+                desc = ", ".join(f"{i['count']}x {i['label']}" for i in st.session_state.ingredientes)
 
-            datos = {
-                'nombre': nombre, 'descripcion': desc, 'categoria': categoria,
-                'tipo': tipo, 'nivel_minimo': nivel, 'recompensas': st.session_state.recompensas,
-                'ingredientes': st.session_state.ingredientes, 'take_items': take_items,
-                'currency_type': currency_type, 'location': location, 'animation': animation,
-                'use_currency': use_currency, 'job': job_final, 'pack': pack,
-            }
-            codigo_lua = generate_crafting_block(datos)
+                datos = {
+                    'nombre': nombre, 'descripcion': desc, 'categoria': categoria,
+                    'tipo': tipo, 'nivel_minimo': nivel, 'recompensas': st.session_state.recompensas,
+                    'ingredientes': st.session_state.ingredientes, 'take_items': take_items,
+                    'currency_type': currency_type, 'location': location, 'animation': animation,
+                    'use_currency': use_currency, 'job': job_final, 'pack': pack,
+                }
+                codigo_lua = generate_crafting_block(datos)
 
-            # Validar sintaxis
-            syntax_errors = validate_lua_syntax(codigo_lua)
-            if syntax_errors:
-                st.error("⚠️ Errores de sintaxis Lua detectados:")
-                for se in syntax_errors:
-                    st.markdown(f"- {se}")
+                # Validar sintaxis
+                syntax_errors = validate_lua_syntax(codigo_lua)
+                if syntax_errors:
+                    st.error("⚠️ Errores de sintaxis Lua detectados:")
+                    for se in syntax_errors:
+                        st.markdown(f"- {se}")
 
-            # Resumen
-            st.markdown(f"""
-            <div class="card">
-                <div class="card-title">✅ Resumen</div>
-                <table style="width:100%;color:#d4c5a9;font-family:'IM Fell English',serif">
-                    <tr><td>Config destino</td><td style="text-align:right"><b>config_{config_destino}.lua</b></td></tr>
-                    <tr><td>Nombre</td><td style="text-align:right"><b>{nombre}</b></td></tr>
-                    <tr><td>Categoría</td><td style="text-align:right">{categoria}</td></tr>
-                    <tr><td>Recompensas</td><td style="text-align:right">{len(st.session_state.recompensas)} items</td></tr>
-                    <tr><td>Ingredientes</td><td style="text-align:right">{len(st.session_state.ingredientes)} items</td></tr>
-                    <tr><td>Nivel mínimo</td><td style="text-align:right">{nivel}</td></tr>
-                    <tr><td>Pack</td><td style="text-align:right">{pack or '—'}</td></tr>
-                </table>
-            </div>
-            """, unsafe_allow_html=True)
+                # Resumen
+                st.markdown(f"""
+                <div class="card">
+                    <div class="card-title">✅ Resumen</div>
+                    <table style="width:100%;color:#d4c5a9;font-family:'IM Fell English',serif">
+                        <tr><td>Config destino</td><td style="text-align:right"><b>config_{config_destino}.lua</b></td></tr>
+                        <tr><td>Nombre</td><td style="text-align:right"><b>{nombre}</b></td></tr>
+                        <tr><td>Categoría</td><td style="text-align:right">{categoria}</td></tr>
+                        <tr><td>Recompensas</td><td style="text-align:right">{len(st.session_state.recompensas)} items</td></tr>
+                        <tr><td>Ingredientes</td><td style="text-align:right">{len(st.session_state.ingredientes)} items</td></tr>
+                        <tr><td>Nivel mínimo</td><td style="text-align:right">{nivel}</td></tr>
+                        <tr><td>Pack</td><td style="text-align:right">{pack or '—'}</td></tr>
+                    </table>
+                </div>
+                """, unsafe_allow_html=True)
 
-            # Código
-            with st.expander("💻 Código Lua generado", expanded=True):
-                st.code(codigo_lua, language="lua")
+                # Código
+                with st.expander("💻 Código Lua generado", expanded=True):
+                    st.code(codigo_lua, language="lua")
 
-            st.download_button("📥 Descargar bloque", codigo_lua,
-                f"crafteo_{config_destino}_{nombre.lower().replace(' ', '_')}.lua", "text/plain",
-                use_container_width=True, key="dl_block")
+                st.download_button("📥 Descargar bloque", codigo_lua,
+                    f"crafteo_{config_destino}_{nombre.lower().replace(' ', '_')}.lua", "text/plain",
+                    use_container_width=True, key="dl_block")
 
-            st.markdown("---")
+                st.markdown("---")
 
-            # === MODO EDICIÓN: guardar cambios ===
-            if modo == "editar" and st.session_state.nombre_original:
-                st.markdown(f"**Editando:** {st.session_state.nombre_original} → {nombre}")
+                # === MODO EDICIÓN: guardar cambios ===
+                if modo == "editar" and st.session_state.nombre_original:
+                    st.markdown(f"**Editando:** {st.session_state.nombre_original} → {nombre}")
 
-                config_editado = replace_crafting_in_config(config_destino, st.session_state.nombre_original, codigo_lua)
-                if config_editado:
-                    # Validar config completo
-                    full_errors = validate_full_config(config_editado)
-                    if full_errors:
-                        st.warning("Advertencias en el config resultante:")
-                        for fe in full_errors:
-                            st.caption(f"⚠️ {fe}")
+                    config_editado = replace_crafting_in_config(config_destino, st.session_state.nombre_original, codigo_lua)
+                    if config_editado:
+                        # Validar config completo
+                        full_errors = validate_full_config(config_editado)
+                        if full_errors:
+                            st.warning("Advertencias en el config resultante:")
+                            for fe in full_errors:
+                                st.caption(f"⚠️ {fe}")
 
-                    if st.button("☁️ Sobreescribir en Drive",
-                                 use_container_width=True, type="primary", key="save_edit"):
-                        if save_config_file(config_destino, config_editado):
-                            st.success("Cambios guardados en Drive")
+                        if st.button("☁️ Sobreescribir en Drive",
+                                     use_container_width=True, type="primary", key="save_edit"):
+                            if save_config_file(config_destino, config_editado):
+                                st.success("Cambios guardados en Drive")
+                                drive_manager.clear_cache()
+                                st.session_state.ingredientes = []
+                                st.session_state.recompensas = []
+                                st.session_state.nombre_original = None
+                                st.rerun()
+                            else:
+                                st.error("Error al guardar en Drive")
+
+                        with st.expander("Preview config editado"):
+                            st.code(config_editado, language="lua")
+                    else:
+                        st.error("No se encontró el crafteo original para reemplazar")
+
+                    # Opción desactivar
+                    st.markdown("---")
+                    if st.button("🚫 Desactivar este crafteo", key="disable_edit", use_container_width=True):
+                        config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
+                        if config_dis and save_config_file(config_destino, config_dis):
+                            st.success(f"'{st.session_state.nombre_original}' desactivado en Drive")
                             drive_manager.clear_cache()
                             st.session_state.ingredientes = []
                             st.session_state.recompensas = []
                             st.session_state.nombre_original = None
                             st.rerun()
-                        else:
-                            st.error("Error al guardar en Drive")
 
-                    with st.expander("Preview config editado"):
-                        st.code(config_editado, language="lua")
+                # === MODO CREACIÓN: añadir nuevo ===
                 else:
-                    st.error("No se encontró el crafteo original para reemplazar")
+                    existing = get_config_file_content(config_destino)
+                    if existing:
+                        config_completo = add_crafting_to_config(config_destino, codigo_lua)
+                        n_existentes = len(parse_crafting_blocks(existing))
 
-                # Opción desactivar
-                st.markdown("---")
-                if st.button("🚫 Desactivar este crafteo", key="disable_edit", use_container_width=True):
-                    config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
-                    if config_dis and save_config_file(config_destino, config_dis):
-                        st.success(f"'{st.session_state.nombre_original}' desactivado en Drive")
-                        drive_manager.clear_cache()
-                        st.session_state.ingredientes = []
-                        st.session_state.recompensas = []
-                        st.session_state.nombre_original = None
-                        st.rerun()
+                        # Validar config completo
+                        full_errors = validate_full_config(config_completo)
+                        if full_errors:
+                            st.warning("Advertencias en el config resultante:")
+                            for fe in full_errors:
+                                st.caption(f"⚠️ {fe}")
 
-            # === MODO CREACIÓN: añadir nuevo ===
-            else:
-                existing = get_config_file_content(config_destino)
-                if existing:
-                    config_completo = add_crafting_to_config(config_destino, codigo_lua)
-                    n_existentes = len(parse_crafting_blocks(existing))
+                        st.success(f"Config tiene {n_existentes} recetas. Se añadirá una nueva.")
 
-                    # Validar config completo
-                    full_errors = validate_full_config(config_completo)
-                    if full_errors:
-                        st.warning("Advertencias en el config resultante:")
-                        for fe in full_errors:
-                            st.caption(f"⚠️ {fe}")
+                        if st.button(
+                            f"☁️ Guardar en Drive (config_{config_destino}.lua)",
+                            use_container_width=True, type="primary", key="save_new"
+                        ):
+                            if save_config_file(config_destino, config_completo):
+                                st.success("Receta añadida y guardada en Drive")
+                                drive_manager.clear_cache()
+                                st.session_state.ingredientes = []
+                                st.session_state.recompensas = []
+                                st.rerun()
+                            else:
+                                st.error("Error al guardar en Drive")
 
-                    st.success(f"Config tiene {n_existentes} recetas. Se añadirá una nueva.")
-
-                    if st.button(
-                        f"☁️ Guardar en Drive (config_{config_destino}.lua)",
-                        use_container_width=True, type="primary", key="save_new"
-                    ):
-                        if save_config_file(config_destino, config_completo):
-                            st.success("Receta añadida y guardada en Drive")
-                            drive_manager.clear_cache()
-                            st.session_state.ingredientes = []
-                            st.session_state.recompensas = []
-                            st.rerun()
-                        else:
-                            st.error("Error al guardar en Drive")
-
-                    with st.expander("Preview config completo"):
-                        st.code(config_completo, language="lua")
-                else:
-                    st.info(f"No existe config_{config_destino}.lua. Se creará uno nuevo en Drive.")
-                    config_name = get_config_name(config_destino)
-                    nuevo_config = (
-                        f"Config.{config_name} = {{{codigo_lua}\n}}\n\n"
-                        f"-- Agregamos a la configuración general los items de {config_destino}\n"
-                        f"for _, item in pairs(Config.{config_name}) do\n"
-                        f"    table.insert(Config.Crafting, item)\n"
-                        f"end\n"
-                    )
-                    if st.button("☁️ Crear config en Drive",
-                                 use_container_width=True, type="primary", key="create_new"):
-                        if save_config_file(config_destino, nuevo_config):
-                            st.success("Config creado en Drive")
-                            drive_manager.clear_cache()
-                            st.rerun()
+                        with st.expander("Preview config completo"):
+                            st.code(config_completo, language="lua")
+                    else:
+                        st.info(f"No existe config_{config_destino}.lua. Se creará uno nuevo en Drive.")
+                        config_name = get_config_name(config_destino)
+                        nuevo_config = (
+                            f"Config.{config_name} = {{{codigo_lua}\n}}\n\n"
+                            f"-- Agregamos a la configuración general los items de {config_destino}\n"
+                            f"for _, item in pairs(Config.{config_name}) do\n"
+                            f"    table.insert(Config.Crafting, item)\n"
+                            f"end\n"
+                        )
+                        if st.button("☁️ Crear config en Drive",
+                                     use_container_width=True, type="primary", key="create_new"):
+                            if save_config_file(config_destino, nuevo_config):
+                                st.success("Config creado en Drive")
+                                drive_manager.clear_cache()
+                                st.rerun()
 
 
 # ============================================================================
-# SECCIÓN 3: CREAR NUEVO CONFIG (JOB)
+# TAB 3: CREAR NUEVO CONFIG (JOB)
 # ============================================================================
-st.markdown("---")
-st.markdown('<div class="card"><div class="card-title">🏭 Crear Nuevo Config / Job</div></div>', unsafe_allow_html=True)
-st.markdown("Crea un nuevo archivo `config_xxx.lua` en Drive para un nuevo oficio o categoría.")
+with tab_config:
+    st.markdown('<div class="card"><div class="card-title">🏭 Crear Nuevo Config / Job</div></div>', unsafe_allow_html=True)
+    st.markdown("Crea un nuevo archivo `config_xxx.lua` en Drive para un nuevo oficio o categoría.")
 
-c1, c2 = st.columns(2)
-with c1:
-    new_key = st.text_input("Clave del config *",
-        placeholder="tienda, herrero, panaderia...",
-        help="Se usará como config_<clave>.lua. Solo letras, sin espacios ni caracteres especiales.",
-        key="new_cfg_key")
-with c2:
-    new_display = st.text_input("Nombre para mostrar",
-        placeholder="🏪 Tienda",
-        help="Nombre con emoji que se mostrará en la interfaz",
-        key="new_cfg_display")
+    c1, c2 = st.columns(2)
+    with c1:
+        new_key = st.text_input("Clave del config *",
+            placeholder="tienda, herrero, panaderia...",
+            help="Se usará como config_<clave>.lua. Solo letras, sin espacios ni caracteres especiales.",
+            key="new_cfg_key")
+    with c2:
+        new_display = st.text_input("Nombre para mostrar",
+            placeholder="🏪 Tienda",
+            help="Nombre con emoji que se mostrará en la interfaz",
+            key="new_cfg_display")
 
-new_config_name = st.text_input("Nombre Config.X en Lua",
-    value=new_key.capitalize() if new_key else "",
-    placeholder="Tienda",
-    help="Nombre de la variable Lua: Config.Tienda = {}",
-    key="new_cfg_lua")
+    new_config_name = st.text_input("Nombre Config.X en Lua",
+        value=new_key.capitalize() if new_key else "",
+        placeholder="Tienda",
+        help="Nombre de la variable Lua: Config.Tienda = {}",
+        key="new_cfg_lua")
 
-new_category = st.text_input("Categoría por defecto",
-    value=new_config_name if new_config_name else "",
-    placeholder="Tienda",
-    help="Valor de Category en cada receta de este config",
-    key="new_cfg_cat")
+    new_category = st.text_input("Categoría por defecto",
+        value=new_config_name if new_config_name else "",
+        placeholder="Tienda",
+        help="Valor de Category en cada receta de este config",
+        key="new_cfg_cat")
 
-new_job_value = st.text_input("Job value",
-    value="0",
-    help='0 = cualquiera. Para jobs específicos: {"tiendero", "vendedor"}',
-    key="new_cfg_job")
+    new_job_value = st.text_input("Job value",
+        value="0",
+        help='0 = cualquiera. Para jobs específicos: {"tiendero", "vendedor"}',
+        key="new_cfg_job")
 
-# Validaciones
-key_valid = bool(new_key and new_key.isalnum())
-key_exists = new_key in (config_keys if config_keys else [])
+    # Validaciones
+    key_valid = bool(new_key and new_key.isalnum())
+    key_exists = new_key in (config_keys if config_keys else [])
 
-if new_key and not key_valid:
-    st.error("La clave solo puede contener letras y números, sin espacios.")
-if key_exists:
-    st.error(f"Ya existe config_{new_key}.lua")
+    if new_key and not key_valid:
+        st.error("La clave solo puede contener letras y números, sin espacios.")
+    if key_exists:
+        st.error(f"Ya existe config_{new_key}.lua")
 
-if new_key and new_config_name:
-    # Preview
-    preview_content = create_empty_config(new_key, new_config_name)
-    st.markdown("**Preview del archivo:**")
-    st.code(preview_content, language="lua")
+    if new_key and new_config_name:
+        # Preview
+        preview_content = create_empty_config(new_key, new_config_name)
+        st.markdown("**Preview del archivo:**")
+        st.code(preview_content, language="lua")
 
-    can_create = key_valid and not key_exists and new_config_name
-    if st.button("☁️ Crear config en Drive",
-                 disabled=not can_create, use_container_width=True, type="primary", key="btn_create_cfg"):
-        register_config_name(new_key, new_config_name)
+        can_create = key_valid and not key_exists and new_config_name
+        if st.button("☁️ Crear config en Drive",
+                     disabled=not can_create, use_container_width=True, type="primary", key="btn_create_cfg"):
+            register_config_name(new_key, new_config_name)
 
-        if save_config_file(new_key, preview_content):
-            st.success(f"✅ config_{new_key}.lua creado en Drive")
-            drive_manager.clear_cache()
+            if save_config_file(new_key, preview_content):
+                st.success(f"✅ config_{new_key}.lua creado en Drive")
+                drive_manager.clear_cache()
 
-            if new_category and new_category not in CATEGORIAS_CRAFTEO:
-                CATEGORIAS_CRAFTEO[new_category] = f"📄 {new_display or new_category}"
+                if new_category and new_category not in CATEGORIAS_CRAFTEO:
+                    CATEGORIAS_CRAFTEO[new_category] = f"📄 {new_display or new_category}"
 
-            if new_key not in BASE_JOBS:
-                jv = new_job_value.strip()
-                if jv.startswith('{'):
-                    jv_parsed = jv
-                else:
-                    try:
-                        jv_parsed = int(jv)
-                    except ValueError:
-                        jv_parsed = 0
-                BASE_JOBS[new_key] = {
-                    'nombre': new_display or f"📄 {new_config_name}",
-                    'category': new_category or new_config_name,
-                    'job_value': jv_parsed,
-                }
+                if new_key not in BASE_JOBS:
+                    jv = new_job_value.strip()
+                    if jv.startswith('{'):
+                        jv_parsed = jv
+                    else:
+                        try:
+                            jv_parsed = int(jv)
+                        except ValueError:
+                            jv_parsed = 0
+                    BASE_JOBS[new_key] = {
+                        'nombre': new_display or f"📄 {new_config_name}",
+                        'category': new_category or new_config_name,
+                        'job_value': jv_parsed,
+                    }
 
-            st.rerun()
-        else:
-            st.error("Error al crear el archivo en Drive")
-
-
-# ============================================================================
-# SECCIÓN 4: EDITOR LUA (lectura/escritura directa en Drive)
-# ============================================================================
-st.markdown("---")
-st.markdown('<div class="card"><div class="card-title">✏️ Editor de Código Lua (Drive)</div></div>', unsafe_allow_html=True)
-
-if not config_keys:
-    st.warning("No hay configs disponibles en Drive.")
-else:
-    ed_config = st.selectbox("Archivo a editar", config_keys,
-        format_func=lambda x: f"config_{x}.lua", key="ed_cfg_sel")
-
-    ed_content = get_config_file_content(ed_config)
-    if ed_content:
-        edited = st.text_area("Código Lua", ed_content, height=500, key=f"editor_{ed_config}",
-                              label_visibility="collapsed")
-
-        has_changes = edited != ed_content
-
-        # Validar en tiempo real
-        if has_changes:
-            v_errors = validate_full_config(edited)
-            if v_errors:
-                st.warning("⚠️ Problemas detectados:")
-                for ve in v_errors:
-                    st.caption(f"- {ve}")
-            else:
-                st.success("✅ Sintaxis válida")
-
-        c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            if st.button(
-                "☁️ Sobreescribir en Drive" if has_changes else "Sin cambios",
-                disabled=not has_changes, use_container_width=True, type="primary",
-                key=f"save_ed_{ed_config}"
-            ):
-                if save_config_file(ed_config, edited):
-                    st.success(f"config_{ed_config}.lua guardado en Drive")
-                    drive_manager.clear_cache()
-                    st.rerun()
-                else:
-                    st.error("Error al guardar en Drive")
-        with c2:
-            if st.button("↩️ Revertir", disabled=not has_changes, use_container_width=True, key=f"rev_{ed_config}"):
                 st.rerun()
-        with c3:
-            st.download_button("📥 Descargar", edited, f"config_{ed_config}.lua",
-                "text/plain", use_container_width=True, key=f"dl_ed_{ed_config}")
+            else:
+                st.error("Error al crear el archivo en Drive")
+
+
+# ============================================================================
+# TAB 4: EDITOR LUA (lectura/escritura directa en Drive)
+# ============================================================================
+with tab_editor:
+    st.markdown('<div class="card"><div class="card-title">✏️ Editor de Código Lua (Drive)</div></div>', unsafe_allow_html=True)
+
+    if not config_keys:
+        st.warning("No hay configs disponibles en Drive.")
     else:
-        st.error(f"No se pudo leer config_{ed_config}.lua desde Drive")
+        ed_config = st.selectbox("Archivo a editar", config_keys,
+            format_func=lambda x: f"config_{x}.lua", key="ed_cfg_sel")
+
+        ed_content = get_config_file_content(ed_config)
+        if ed_content:
+            edited = st.text_area("Código Lua", ed_content, height=500, key=f"editor_{ed_config}",
+                                  label_visibility="collapsed")
+
+            has_changes = edited != ed_content
+
+            # Validar en tiempo real
+            if has_changes:
+                v_errors = validate_full_config(edited)
+                if v_errors:
+                    st.warning("⚠️ Problemas detectados:")
+                    for ve in v_errors:
+                        st.caption(f"- {ve}")
+                else:
+                    st.success("✅ Sintaxis válida")
+
+            c1, c2, c3 = st.columns([2, 1, 1])
+            with c1:
+                if st.button(
+                    "☁️ Sobreescribir en Drive" if has_changes else "Sin cambios",
+                    disabled=not has_changes, use_container_width=True, type="primary",
+                    key=f"save_ed_{ed_config}"
+                ):
+                    if save_config_file(ed_config, edited):
+                        st.success(f"config_{ed_config}.lua guardado en Drive")
+                        drive_manager.clear_cache()
+                        st.rerun()
+                    else:
+                        st.error("Error al guardar en Drive")
+            with c2:
+                if st.button("↩️ Revertir", disabled=not has_changes, use_container_width=True, key=f"rev_{ed_config}"):
+                    st.rerun()
+            with c3:
+                st.download_button("📥 Descargar", edited, f"config_{ed_config}.lua",
+                    "text/plain", use_container_width=True, key=f"dl_ed_{ed_config}")
+        else:
+            st.error(f"No se pudo leer config_{ed_config}.lua desde Drive")
 
 
 # ============================================================================
