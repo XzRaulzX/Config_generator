@@ -5,6 +5,7 @@ Herramienta Streamlit con integración Google Drive
 
 import streamlit as st
 import traceback
+import re
 from config_items import (
     ALL_ITEMS, BASE_JOBS, ANIMACIONES, CATEGORIAS_CRAFTEO, TIPOS_CRAFTEO,
     PACKS_PREDEFINIDOS, get_job_metadata, get_job_display_name,
@@ -848,8 +849,9 @@ with tab_config:
             help="Nombre con emoji que se mostrará en la interfaz",
             key="new_cfg_display")
 
+    _default_lua_name = new_key.replace('_', ' ').title().replace(' ', '') if new_key else ""
     new_config_name = st.text_input("Nombre Config.X en Lua",
-        value=new_key.capitalize() if new_key else "",
+        value=_default_lua_name,
         placeholder="Tienda",
         help="Nombre de la variable Lua: Config.Tienda = {}",
         key="new_cfg_lua")
@@ -866,11 +868,11 @@ with tab_config:
         key="new_cfg_job")
 
     # Validaciones
-    key_valid = bool(new_key and new_key.isalnum())
+    key_valid = bool(new_key and re.fullmatch(r'[a-zA-Z0-9_]+', new_key))
     key_exists = new_key in (config_keys if config_keys else [])
 
     if new_key and not key_valid:
-        st.error("La clave solo puede contener letras y números, sin espacios.")
+        st.error("La clave solo puede contener letras, números y guiones bajos, sin espacios.")
     if key_exists:
         st.error(f"Ya existe config_{new_key}.lua")
 
