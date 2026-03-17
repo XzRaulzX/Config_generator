@@ -17705,6 +17705,97 @@
       "weight": 0.5,
       "degradation": 0,
       "groupId": 0
+    },
+    {
+      "item": "jabon_antisep",
+      "label": "Jabon Antisep",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "locion",
+      "label": "Locion",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "desodorante",
+      "label": "Desodorante",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "fijador",
+      "label": "Fijador",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "fperfume",
+      "label": "Fperfume",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "mperfume",
+      "label": "Mperfume",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "snakeoil",
+      "label": "Snakeoil",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
     }
   ]
 }

@@ -1360,3 +1360,10 @@ golosinas_caballos
 rape
 prendedor_plata
 prendedor_oro
+jabon_antisep
+locion
+desodorante
+fijador
+fperfume
+mperfume
+snakeoil
