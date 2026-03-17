@@ -690,15 +690,32 @@ with tab_nueva:
                 animation = st.selectbox("Animación", anim_keys, anim_idx,
                     format_func=lambda x: ANIMACIONES[x], key="anim")
 
-            # Pack: predefinido o custom
+            # Pack: checkbox + selector dinámico
             st.markdown("**Pack (opcional)**")
-            pack_mode = st.radio("Tipo de pack", ["Predefinido", "Personalizado"], horizontal=True, key="pack_mode", label_visibility="collapsed")
-            if pack_mode == "Predefinido":
-                pack_idx = PACKS_PREDEFINIDOS.index(d_pack) if d_pack in PACKS_PREDEFINIDOS else 0
-                pack = st.selectbox("Pack", PACKS_PREDEFINIDOS, pack_idx,
-                    format_func=lambda x: "-- Sin pack --" if x == "" else x.capitalize(), key="pack_sel")
+            is_pack = st.checkbox("📦 Es un Pack", value=bool(d_pack), key="is_pack")
+            if is_pack:
+                # Extraer packs existentes del config destino
+                _cfg_content = get_config_file_content(config_destino)
+                _existing_packs = set()
+                if _cfg_content:
+                    for _cb in parse_crafting_blocks(_cfg_content):
+                        _p = _cb.get('pack', '')
+                        if _p:
+                            _existing_packs.add(_p)
+                _existing_packs = sorted(_existing_packs)
+
+                pack_mode = st.radio("Tipo de pack", ["Existente", "Nuevo"], horizontal=True, key="pack_mode", label_visibility="collapsed")
+                if pack_mode == "Existente" and _existing_packs:
+                    pack_idx = _existing_packs.index(d_pack) if d_pack in _existing_packs else 0
+                    pack = st.selectbox("Pack existente", _existing_packs, pack_idx,
+                        format_func=lambda x: x.capitalize(), key="pack_sel")
+                elif pack_mode == "Existente" and not _existing_packs:
+                    st.info("No hay packs en este config. Crea uno nuevo.")
+                    pack = st.text_input("Nombre del nuevo pack", value=d_pack, placeholder="Ej: mejicana", key="pack_new")
+                else:
+                    pack = st.text_input("Nombre del nuevo pack", value="" if not d_pack else d_pack, placeholder="Ej: mejicana", key="pack_custom")
             else:
-                pack = st.text_input("Nombre del pack", value=d_pack, placeholder="Ej: nomada", key="pack_custom")
+                pack = ""
 
             # Job override
             st.markdown("**Job (valor para filtro de trabajo)**")
