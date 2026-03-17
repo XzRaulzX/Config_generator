@@ -77,10 +77,12 @@ def save_config_file(job_key: str, content: str) -> bool:
     filename = f"config_{job_key}.lua"
     if _storage_mode == 'drive' and _drive_module:
         try:
-            return _drive_module.write_file(filename, content)
+            result = _drive_module.write_file(filename, content)
+            return bool(result)
         except Exception as e:
-            print(f"Error guardando config en Drive: {e}")
-            return False
+            import traceback
+            traceback.print_exc()
+            raise
     return False
 
 

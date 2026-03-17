@@ -232,13 +232,21 @@ def apply_all_changes():
     if not pending:
         return True, []
     errors = []
-    for key, content in pending.items():
-        if not save_config_file(key, content):
-            errors.append(key)
+    for key, content in list(pending.items()):
+        try:
+            if not save_config_file(key, content):
+                errors.append(f"{key} (save retornó False)")
+        except Exception as e:
+            errors.append(f"{key} ({type(e).__name__}: {e})")
     if not errors:
         st.session_state.pending_changes = {}
         drive_manager.clear_cache()
         return True, []
+    # Eliminar los que sí se guardaron
+    for key in list(pending.keys()):
+        if not any(key in err for err in errors):
+            del st.session_state.pending_changes[key]
+    drive_manager.clear_cache()
     return False, errors
 
 
@@ -318,9 +326,11 @@ if n_pending > 0:
         if st.button(f"☁️ Aplicar {n_pending} cambio(s)", key="apply_changes", use_container_width=True, type="primary"):
             ok, errs = apply_all_changes()
             if ok:
+                st.toast("✅ Cambios aplicados a Drive")
                 st.rerun()
             else:
-                st.error(f"Error al guardar: {', '.join(errs)}")
+                for err in errs:
+                    st.error(f"Error: {err}")
     st.warning(f"⚠️ Tienes **{n_pending}** cambio(s) pendiente(s) sin subir a Drive: {', '.join(f'config_{k}.lua' for k in pending.keys())}")
     col_discard, _ = st.columns([1, 3])
     with col_discard:
