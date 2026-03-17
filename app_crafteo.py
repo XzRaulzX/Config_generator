@@ -9,6 +9,7 @@ import re
 from config_items import (
     ALL_ITEMS, BASE_JOBS, ANIMACIONES, CATEGORIAS_CRAFTEO, TIPOS_CRAFTEO,
     PACKS_PREDEFINIDOS, get_job_metadata, get_job_display_name,
+    DATA_PATH, load_all_items,
 )
 
 # Claves especiales para archivos de metadatos en Drive
@@ -454,9 +455,9 @@ if n_pending > 0:
 # ============================================================================
 # TABS PRINCIPALES
 # ============================================================================
-tab_recetas, tab_nueva, tab_config, tab_categorias, tab_packs, tab_editor = st.tabs([
-    "📋 Gestionar Recetas", "➕ Nueva Receta", "🏭 Nuevo Config",
-    "📂 Categorías", "📦 Packs", "✏️ Editor Lua"
+tab_recetas, tab_nueva, tab_items, tab_categorias, tab_packs, tab_editor, tab_config = st.tabs([
+    "📋 Gestionar Recetas", "➕ Nueva Receta", "🧱 Items",
+    "📂 Categorías", "📦 Packs", "✏️ Editor Lua", "🏭 Nuevo Config"
 ])
 
 
@@ -615,7 +616,7 @@ with tab_nueva:
 
         # Defaults
         d_nombre, d_nivel, d_tipo, d_cat_idx = "", 0, "item", None
-        d_take, d_use_curr, d_curr_type, d_location = True, False, 0, 0
+        d_use_curr, d_curr_type, d_location = False, 0, 0
         d_animation, d_pack = "craft", ""
 
         if modo == "editar":
@@ -634,7 +635,7 @@ with tab_nueva:
                         st.session_state.nombre_original = nom_sel
                         st.session_state.crafteo_editando = cd
                         st.session_state.ingredientes = [
-                            {'name': i.get('name', ''), 'label': ALL_ITEMS.get(i.get('name', ''), i.get('name', '')), 'count': i.get('count', 1)}
+                            {'name': i.get('name', ''), 'label': ALL_ITEMS.get(i.get('name', ''), i.get('name', '')), 'count': i.get('count', 1), 'take': i.get('take', True)}
                             for i in cd.get('ingredientes', [])
                         ]
                         st.session_state.recompensas = [
@@ -646,7 +647,6 @@ with tab_nueva:
                     d_nombre = cd.get('nombre', '')
                     d_nivel = cd.get('nivel_minimo', 0)
                     d_tipo = cd.get('tipo', 'item')
-                    d_take = cd.get('take_items', True)
                     d_use_curr = cd.get('use_currency', False)
                     d_curr_type = cd.get('currency_type', 0)
                     d_location = cd.get('location', 0)
@@ -747,15 +747,24 @@ with tab_nueva:
         cnt_ing = ci2.number_input("Cant.", 1, 999, 1, key="ci_cnt")
         with ci3:
             st.write(""); st.write("")
-            if st.button("➕", key="add_ing", use_container_width=True):
-                if new_ing:
-                    st.session_state.ingredientes.append({'name': new_ing, 'label': new_ing_label, 'count': cnt_ing})
-                    st.rerun()
+            take_new_ing = st.checkbox("♻️ Se consume", value=True, key="take_new_ing")
+
+        if st.button("➕ Añadir ingrediente", key="add_ing", use_container_width=True):
+            if new_ing:
+                st.session_state.ingredientes.append({'name': new_ing, 'label': new_ing_label, 'count': cnt_ing, 'take': take_new_ing})
+                st.rerun()
 
         for i, ing in enumerate(st.session_state.ingredientes):
-            c_a, c_b = st.columns([5, 1])
-            c_a.markdown(f'<div class="item-row"><div><span class="name">📦 {ing["label"]}</span> <span class="id">({ing["name"]})</span></div><span class="count">x{ing["count"]}</span></div>', unsafe_allow_html=True)
-            if c_b.button("🗑️", key=f"di_{i}"):
+            c_a, c_b, c_c = st.columns([4, 1, 1])
+            take_val = ing.get('take', True)
+            suffix = '' if take_val else ' (↺)'
+            c_a.markdown(f'<div class="item-row"><div><span class="name">📦 {ing["label"]}{suffix}</span> <span class="id">({ing["name"]})</span></div><span class="count">x{ing["count"]}</span></div>', unsafe_allow_html=True)
+            with c_b:
+                new_take = st.checkbox("♻️", value=take_val, key=f"take_{i}", label_visibility="collapsed")
+                if new_take != take_val:
+                    st.session_state.ingredientes[i]['take'] = new_take
+                    st.rerun()
+            if c_c.button("🗑️", key=f"di_{i}"):
                 st.session_state.ingredientes.pop(i); st.rerun()
 
         if st.session_state.ingredientes:
@@ -766,7 +775,6 @@ with tab_nueva:
         with st.expander("⚙️ Opciones avanzadas"):
             ca1, ca2 = st.columns(2)
             with ca1:
-                take_items = st.checkbox("Consumir ingredientes", d_take, key="take")
                 use_currency = st.checkbox("Cobrar dinero", d_use_curr, key="ucurr")
                 if use_currency:
                     currency_type = st.selectbox("Moneda", [0, 1], d_curr_type,
@@ -825,12 +833,15 @@ with tab_nueva:
                     st.markdown(f"- {e}")
             else:
                 # Generar descripción automática
-                desc = ", ".join(f"{i['count']}x {i['label']}" for i in st.session_state.ingredientes)
+                desc = ", ".join(
+                    f"{i['count']}x {i['label']}" + ('' if i.get('take', True) else ' (↺)')
+                    for i in st.session_state.ingredientes
+                )
 
                 datos = {
                     'nombre': nombre, 'descripcion': desc, 'categoria': categoria,
                     'tipo': tipo, 'nivel_minimo': nivel, 'recompensas': st.session_state.recompensas,
-                    'ingredientes': st.session_state.ingredientes, 'take_items': take_items,
+                    'ingredientes': st.session_state.ingredientes,
                     'currency_type': currency_type, 'location': location, 'animation': animation,
                     'use_currency': use_currency, 'job': job_final, 'pack': pack,
                 }
@@ -956,7 +967,88 @@ with tab_nueva:
 
 
 # ============================================================================
-# TAB 3: CREAR NUEVO CONFIG (JOB)
+# TAB 3: ITEMS (editar lista txt y rebuild json)
+# ============================================================================
+with tab_items:
+    st.subheader("🧱 Gestionar Items")
+    st.caption("Edita la lista de IDs de items (uno por línea). Al aplicar se regenera el JSON preservando datos existentes.")
+
+    items_txt_path = DATA_PATH / "items.txt"
+    items_json_path = DATA_PATH / "items.json"
+
+    # Cargar contenido actual del txt
+    if '_items_txt_content' not in st.session_state:
+        try:
+            st.session_state._items_txt_content = items_txt_path.read_text(encoding='utf-8')
+        except Exception:
+            st.session_state._items_txt_content = ""
+
+    edited_txt = st.text_area(
+        "items.txt", value=st.session_state._items_txt_content,
+        height=400, key="items_txt_editor",
+        help="Un ID de item por línea. Ej: gunpowder, sarten, harina_maiz"
+    )
+
+    # Estadísticas
+    current_ids = [l.strip() for l in edited_txt.splitlines() if l.strip()]
+    original_ids = [l.strip() for l in st.session_state._items_txt_content.splitlines() if l.strip()]
+    new_ids = set(current_ids) - set(original_ids)
+    removed_ids = set(original_ids) - set(current_ids)
+
+    ci1, ci2, ci3 = st.columns(3)
+    ci1.metric("Total items", len(current_ids))
+    ci2.metric("Nuevos", len(new_ids), delta=len(new_ids) if new_ids else None)
+    ci3.metric("Eliminados", len(removed_ids), delta=-len(removed_ids) if removed_ids else None)
+
+    if new_ids:
+        with st.expander(f"➕ {len(new_ids)} items nuevos"):
+            st.code("\n".join(sorted(new_ids)))
+    if removed_ids:
+        with st.expander(f"🗑️ {len(removed_ids)} items eliminados"):
+            st.code("\n".join(sorted(removed_ids)))
+
+    col_apply, col_reset = st.columns(2)
+    with col_apply:
+        if st.button("🔄 Aplicar y regenerar JSON", key="rebuild_items", use_container_width=True, type="primary"):
+            import json as _json
+            # Guardar txt
+            items_txt_path.write_text(edited_txt, encoding='utf-8')
+            # Rebuild: leer json existente, merge, guardar
+            existing = {}
+            if items_json_path.exists():
+                with open(items_json_path, 'r', encoding='utf-8') as f:
+                    for entry in _json.load(f).get('items', []):
+                        existing[entry['item']] = entry
+            items_out = []
+            added = 0
+            for item_id in current_ids:
+                if item_id in existing:
+                    items_out.append(existing[item_id])
+                else:
+                    items_out.append({
+                        'item': item_id, 'label': item_id.replace('_', ' ').title(),
+                        'limit': 250, 'can_remove': 1, 'type': 'item_standard',
+                        'usable': 1, 'metadata': '{}', 'desc': '',
+                        'weight': 0.5, 'degradation': 0, 'groupId': 9
+                    })
+                    added += 1
+            with open(items_json_path, 'w', encoding='utf-8') as f:
+                _json.dump({'items': items_out}, f, ensure_ascii=False, indent=2)
+            # Actualizar ALL_ITEMS en memoria
+            import config_items
+            config_items.ALL_ITEMS = load_all_items()
+            # Actualizar session state
+            st.session_state._items_txt_content = edited_txt
+            st.toast(f"✅ {len(items_out)} items ({added} nuevos) — JSON regenerado")
+            st.rerun()
+    with col_reset:
+        if st.button("↩️ Descartar cambios", key="reset_items_txt", use_container_width=True):
+            del st.session_state._items_txt_content
+            st.rerun()
+
+
+# ============================================================================
+# TAB 7: CREAR NUEVO CONFIG (JOB)
 # ============================================================================
 with tab_config:
     st.markdown('<div class="card"><div class="card-title">🏭 Crear Nuevo Config / Job</div></div>', unsafe_allow_html=True)

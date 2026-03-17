@@ -107,7 +107,7 @@ def generate_crafting_block(data: dict) -> str:
     # Ingredientes
     items_lines = []
     for ing in data['ingredientes']:
-        take_value = "true" if data.get('take_items', True) else "false"
+        take_value = "true" if ing.get('take', True) else "false"
         items_lines.append(
             f'{{\n        name = "{ing["name"]}",\n'
             f'        count = {ing["count"]},\n'
@@ -136,7 +136,7 @@ def generate_crafting_block(data: dict) -> str:
 
     lua_code = (
         "{\n"
-        f"    TakeItems = {str(data.get('take_items', True)).lower()},\n"
+        f"    TakeItems = true,\n"
         f"    CurrencyType = {data.get('currency_type', 0)},\n"
         f"    Location = {data.get('location', 0)},\n"
         f'    Animation = "{data.get("animation", "craft")}",\n'
