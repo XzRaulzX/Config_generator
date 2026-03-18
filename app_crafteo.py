@@ -568,8 +568,8 @@ with tab_recetas:
 
                     # Expandir automáticamente si se está editando esta receta
                     _ie = st.session_state.get('_inline_edit')
-                    _is_editing_this = (_ie and _ie.get('config') == sel_config
-                                        and _ie.get('nombre_original') == nombre_c)
+                    _is_editing_this = bool(_ie and _ie.get('config') == sel_config
+                                             and _ie.get('nombre_original') == nombre_c)
 
                     with st.expander(label, expanded=_is_editing_this):
                         col_info, col_act = st.columns([3, 1])
