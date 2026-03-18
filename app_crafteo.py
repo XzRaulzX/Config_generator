@@ -251,7 +251,18 @@ st.markdown("""
 # en reruns de Streamlit (donde el módulo ya está parcheado).
 if not hasattr(_lcg, '_original_get_config_file_content'):
     _lcg._original_get_config_file_content = _lcg.get_config_file_content
-_original_get_content = _lcg._original_get_config_file_content
+
+
+def _read_from_drive(job_key):
+    """Lee directamente desde Drive, sin pasar por monkey-patch."""
+    filename = f"config_{job_key}.lua"
+    if _drive_available and st.session_state.get('drive_connected'):
+        try:
+            return drive_manager.read_file(filename)
+        except Exception as e:
+            print(f"Error leyendo {filename} desde Drive: {e}")
+            return None
+    return None
 
 
 def invalidate_drive_cache():
@@ -274,7 +285,7 @@ def get_config_file_content(job_key):
         st.session_state._drive_cache = {}
     cache = st.session_state._drive_cache
     if job_key not in cache:
-        cache[job_key] = _original_get_content(job_key)
+        cache[job_key] = _read_from_drive(job_key)
     return cache[job_key]
 
 
