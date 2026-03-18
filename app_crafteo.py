@@ -247,7 +247,11 @@ st.markdown("""
 # HELPERS — PENDING CHANGES SYSTEM
 # ============================================================================
 
-_original_get_content = _lcg.get_config_file_content
+# Guardar la función original UNA sola vez en el módulo para evitar recursión
+# en reruns de Streamlit (donde el módulo ya está parcheado).
+if not hasattr(_lcg, '_original_get_config_file_content'):
+    _lcg._original_get_config_file_content = _lcg.get_config_file_content
+_original_get_content = _lcg._original_get_config_file_content
 
 
 def invalidate_drive_cache():
