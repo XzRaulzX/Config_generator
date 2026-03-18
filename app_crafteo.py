@@ -22,7 +22,7 @@ from lua_crafteo_generator import (
     comment_crafting_in_config, uncomment_crafting_in_config, parse_commented_blocks,
     save_config_file, set_storage_mode, get_storage_mode, get_available_configs,
     get_config_name, register_config_name, create_empty_config,
-    validate_lua_syntax, validate_full_config,
+    validate_lua_syntax, validate_full_config, sort_config_alphabetically,
 )
 
 # ============================================================================
@@ -285,6 +285,15 @@ def stage_change(key, content):
     st.session_state.pending_changes[key] = content
 
 
+def stage_config_change(key, content):
+    """Almacena un cambio de config con ordenación alfabética automática."""
+    try:
+        sorted_content = sort_config_alphabetically(content)
+        stage_change(key, sorted_content if sorted_content else content)
+    except Exception:
+        stage_change(key, content)
+
+
 def apply_all_changes():
     """Escribe todos los cambios pendientes a Drive. Retorna (ok, errores)."""
     pending = st.session_state.get('pending_changes', {})
@@ -403,7 +412,7 @@ def render_apply_button(tab_key):
 defaults = {
     'ingredientes': [], 'recompensas': [], 'selected_config': None,
     'modo_edicion': False, 'nombre_original': None, 'crafteo_editando': None,
-    'pending_changes': {},
+    'pending_changes': {}, '_inline_edit': None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -530,6 +539,7 @@ with tab_recetas:
             st.error(f"No se pudo leer config_{sel_config}.lua desde Drive")
         else:
             crafteos = parse_crafting_blocks(content)
+            crafteos.sort(key=lambda c: c.get('nombre', '').lower())
             comentados = parse_commented_blocks(content)
 
             st.markdown('<div class="card"><div class="card-title">📋 Recetas del Config</div></div>', unsafe_allow_html=True)
@@ -542,7 +552,7 @@ with tab_recetas:
 
             # --- Crafteos activos ---
             if crafteos:
-                st.markdown(f"**Recetas activas ({len(crafteos)})**")
+                st.markdown(f"**Recetas activas ({len(crafteos)}) — ordenadas A→Z**")
                 for idx, craft in enumerate(crafteos):
                     nombre_c = craft.get('nombre', 'Sin nombre')
                     desc_c = craft.get('descripcion', '')
@@ -556,7 +566,12 @@ with tab_recetas:
                     if pack_c:
                         label += f"  [Pack: {pack_c}]"
 
-                    with st.expander(label, expanded=False):
+                    # Expandir automáticamente si se está editando esta receta
+                    _ie = st.session_state.get('_inline_edit')
+                    _is_editing_this = (_ie and _ie.get('config') == sel_config
+                                        and _ie.get('nombre_original') == nombre_c)
+
+                    with st.expander(label, expanded=_is_editing_this):
                         col_info, col_act = st.columns([3, 1])
                         with col_info:
                             st.markdown(f"""
@@ -578,11 +593,30 @@ with tab_recetas:
                                     st.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {lbl}</span> <span class="id">({rew.get("name", "")})</span></div><span class="count" style="background:#00d26a">x{rew.get("count", 1)}</span></div>', unsafe_allow_html=True)
 
                         with col_act:
+                            # Editar
+                            if st.button("✏️ Editar", key=f"edit_{sel_config}_{idx}", use_container_width=True):
+                                st.session_state['_inline_edit'] = {
+                                    'config': sel_config,
+                                    'nombre_original': nombre_c,
+                                    'categoria': cat_c,
+                                    'nivel_minimo': nivel_c,
+                                    'pack': pack_c,
+                                    'tipo': craft.get('tipo', 'item'),
+                                    'animation': craft.get('animation', 'craft'),
+                                    'currency_type': craft.get('currency_type', 0),
+                                    'use_currency': craft.get('use_currency', False),
+                                    'location': craft.get('location', 0),
+                                    'job': craft.get('job', 0),
+                                    'ingredientes': [dict(i) for i in craft.get('ingredientes', [])],
+                                    'recompensas': [dict(r) for r in craft.get('recompensas', [])],
+                                }
+                                st.rerun()
+
                             # Desactivar
                             if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{idx}", use_container_width=True):
                                 new_content = comment_crafting_in_config(sel_config, nombre_c)
                                 if new_content:
-                                    stage_change(sel_config, new_content)
+                                    stage_config_change(sel_config, new_content)
                                     st.success(f"'{nombre_c}' desactivado (pendiente de aplicar)")
                                     st.rerun()
                                 else:
@@ -599,7 +633,7 @@ with tab_recetas:
                                     if st.button("Sí", key=f"yes_{sel_config}_{idx}", use_container_width=True):
                                         new_content = delete_crafting_from_config(sel_config, nombre_c)
                                         if new_content:
-                                            stage_change(sel_config, new_content)
+                                            stage_config_change(sel_config, new_content)
                                             st.success(f"'{nombre_c}' eliminado (pendiente de aplicar)")
                                             del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
                                             st.rerun()
@@ -607,6 +641,142 @@ with tab_recetas:
                                     if st.button("No", key=f"no_{sel_config}_{idx}", use_container_width=True):
                                         del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
                                         st.rerun()
+
+                        # --- Formulario de edición inline ---
+                        if _is_editing_this:
+                            st.markdown("---")
+                            st.markdown('<div class="section-label">✏️ Editar Receta</div>', unsafe_allow_html=True)
+
+                            _ie_data = st.session_state['_inline_edit']
+                            _ie_ings = _ie_data['ingredientes']
+                            _ie_rews = _ie_data['recompensas']
+
+                            # Nombre + Categoría + Nivel
+                            _e1, _e2, _e3 = st.columns([3, 2, 1])
+                            _ed_name = _e1.text_input("Nombre", value=_ie_data.get('nombre_original', nombre_c),
+                                                       key=f"ie_nm_{sel_config}_{idx}")
+                            _cat_keys = list(categorias_dict.keys())
+                            _ie_cat = _ie_data.get('categoria', cat_c)
+                            _ie_cat_idx = _cat_keys.index(_ie_cat) if _ie_cat in _cat_keys else 0
+                            _ed_cat = _e2.selectbox("Categoría", _cat_keys, index=_ie_cat_idx,
+                                                     format_func=lambda x: categorias_dict.get(x, x),
+                                                     key=f"ie_ct_{sel_config}_{idx}")
+                            _ed_lvl = _e3.number_input("Nivel", 0, 100,
+                                                        _ie_data.get('nivel_minimo', nivel_c),
+                                                        key=f"ie_lv_{sel_config}_{idx}")
+
+                            # Ingredientes y Recompensas lado a lado
+                            _ecol_ing, _ecol_rew = st.columns(2)
+
+                            with _ecol_ing:
+                                st.markdown('<div class="section-label">🧪 Ingredientes</div>', unsafe_allow_html=True)
+                                for _ii, _ing in enumerate(_ie_ings):
+                                    _lbl = ALL_ITEMS.get(_ing.get('name', ''), _ing.get('name', ''))
+                                    _ic1, _ic2, _ic3 = st.columns([4, 2, 1])
+                                    _ic1.markdown(f'<div class="item-compact"><span class="name">{_lbl}</span> <span class="id">({_ing.get("name", "")})</span></div>', unsafe_allow_html=True)
+                                    _new_cnt = _ic2.number_input("x", 1, 999, _ing.get('count', 1),
+                                                                  key=f"ie_ic_{sel_config}_{idx}_{_ii}",
+                                                                  label_visibility="collapsed")
+                                    if _ic3.button("✕", key=f"ie_di_{sel_config}_{idx}_{_ii}"):
+                                        _ie_ings.pop(_ii)
+                                        st.rerun()
+
+                                # Añadir ingrediente
+                                _search_ie_ing = st.text_input("🔍", placeholder="Buscar ingrediente...",
+                                                                key=f"ie_si_{sel_config}_{idx}",
+                                                                label_visibility="collapsed")
+                                _ings_f = filter_items(ALL_ITEMS, _search_ie_ing)
+                                _ai1, _ai2 = st.columns([4, 1])
+                                _new_ie_ing = _ai1.selectbox("Ingrediente", [""] + list(_ings_f.keys()),
+                                    format_func=lambda x: f"{_ings_f[x]} ({x})" if x else "-- Añadir --",
+                                    key=f"ie_ni_{sel_config}_{idx}", label_visibility="collapsed")
+                                _cnt_ie_ing = _ai2.number_input("x", 1, 999, 1,
+                                                                 key=f"ie_nic_{sel_config}_{idx}",
+                                                                 label_visibility="collapsed")
+                                if st.button("➕ Ingrediente", key=f"ie_ai_{sel_config}_{idx}", use_container_width=True):
+                                    if _new_ie_ing:
+                                        _ie_ings.append({'name': _new_ie_ing, 'count': _cnt_ie_ing, 'take': True})
+                                        st.rerun()
+
+                            with _ecol_rew:
+                                st.markdown('<div class="section-label">🎁 Recompensas</div>', unsafe_allow_html=True)
+                                for _ri, _rew in enumerate(_ie_rews):
+                                    _lbl = ALL_ITEMS.get(_rew.get('name', ''), _rew.get('name', ''))
+                                    _rc1, _rc2, _rc3 = st.columns([4, 2, 1])
+                                    _rc1.markdown(f'<div class="item-compact reward"><span class="name">🎁 {_lbl}</span> <span class="id">({_rew.get("name", "")})</span></div>', unsafe_allow_html=True)
+                                    _new_rcnt = _rc2.number_input("x", 1, 999, _rew.get('count', 1),
+                                                                   key=f"ie_rc_{sel_config}_{idx}_{_ri}",
+                                                                   label_visibility="collapsed")
+                                    if _rc3.button("✕", key=f"ie_dr_{sel_config}_{idx}_{_ri}"):
+                                        _ie_rews.pop(_ri)
+                                        st.rerun()
+
+                                # Añadir recompensa
+                                _search_ie_rew = st.text_input("🔍", placeholder="Buscar recompensa...",
+                                                                key=f"ie_sr_{sel_config}_{idx}",
+                                                                label_visibility="collapsed")
+                                _rews_f = filter_items(ALL_ITEMS, _search_ie_rew)
+                                _ar1, _ar2 = st.columns([4, 1])
+                                _new_ie_rew = _ar1.selectbox("Recompensa", [""] + list(_rews_f.keys()),
+                                    format_func=lambda x: f"{_rews_f[x]} ({x})" if x else "-- Añadir --",
+                                    key=f"ie_nr_{sel_config}_{idx}", label_visibility="collapsed")
+                                _cnt_ie_rew = _ar2.number_input("x", 1, 999, 1,
+                                                                 key=f"ie_nrc_{sel_config}_{idx}",
+                                                                 label_visibility="collapsed")
+                                if st.button("➕ Recompensa", key=f"ie_ar_{sel_config}_{idx}", use_container_width=True):
+                                    if _new_ie_rew:
+                                        _ie_rews.append({'name': _new_ie_rew, 'count': _cnt_ie_rew})
+                                        st.rerun()
+
+                            # Botones Guardar / Cancelar
+                            _bs, _bc = st.columns(2)
+                            _can_save = bool(_ed_name and _ie_ings and _ie_rews)
+                            with _bs:
+                                if st.button("💾 Guardar cambios", key=f"ie_save_{sel_config}_{idx}",
+                                             use_container_width=True, type="primary", disabled=not _can_save):
+                                    # Leer cantidades actualizadas de los widgets
+                                    _final_ings = []
+                                    for _ii, _ing in enumerate(_ie_ings):
+                                        _cnt = st.session_state.get(f"ie_ic_{sel_config}_{idx}_{_ii}", _ing.get('count', 1))
+                                        _final_ings.append({**_ing, 'count': _cnt})
+                                    _final_rews = []
+                                    for _ri, _rew in enumerate(_ie_rews):
+                                        _cnt = st.session_state.get(f"ie_rc_{sel_config}_{idx}_{_ri}", _rew.get('count', 1))
+                                        _final_rews.append({**_rew, 'count': _cnt})
+
+                                    _desc = ", ".join(
+                                        f"{i['count']}x {ALL_ITEMS.get(i['name'], i['name'])}"
+                                        + ('' if i.get('take', True) else ' (↺)')
+                                        for i in _final_ings
+                                    )
+                                    _datos = {
+                                        'nombre': _ed_name, 'descripcion': _desc,
+                                        'categoria': _ed_cat, 'tipo': _ie_data.get('tipo', 'item'),
+                                        'nivel_minimo': _ed_lvl,
+                                        'recompensas': [{'name': r['name'], 'count': r['count']} for r in _final_rews],
+                                        'ingredientes': _final_ings,
+                                        'currency_type': _ie_data.get('currency_type', 0),
+                                        'location': _ie_data.get('location', 0),
+                                        'animation': _ie_data.get('animation', 'craft'),
+                                        'use_currency': _ie_data.get('use_currency', False),
+                                        'job': _ie_data.get('job', 0),
+                                        'pack': _ie_data.get('pack', ''),
+                                    }
+                                    _code = generate_crafting_block(_datos)
+                                    _new_content = replace_crafting_in_config(
+                                        sel_config, _ie_data['nombre_original'], _code)
+                                    if _new_content:
+                                        stage_config_change(sel_config, _new_content)
+                                        del st.session_state['_inline_edit']
+                                        st.toast(f"✏️ '{_ed_name}' editado (pendiente de aplicar)")
+                                        st.rerun()
+                                    else:
+                                        st.error("Error al guardar los cambios")
+                            with _bc:
+                                if st.button("❌ Cancelar", key=f"ie_cancel_{sel_config}_{idx}",
+                                             use_container_width=True):
+                                    del st.session_state['_inline_edit']
+                                    st.rerun()
 
                         # Código raw
                         with st.expander("🔍 Ver código Lua"):
@@ -626,7 +796,7 @@ with tab_recetas:
                         if st.button("✅ Reactivar", key=f"react_{sel_config}_{idx_d}", use_container_width=True):
                             new_content = uncomment_crafting_in_config(sel_config, bloque_d.get('nombre', ''))
                             if new_content:
-                                stage_change(sel_config, new_content)
+                                stage_config_change(sel_config, new_content)
                                 st.success(f"'{bloque_d.get('nombre', '')}' reactivado (pendiente de aplicar)")
                                 st.rerun()
                             else:
@@ -677,6 +847,7 @@ with tab_nueva:
             existing = get_config_file_content(config_destino)
             if existing:
                 crafteos_edit = parse_crafting_blocks(existing)
+                crafteos_edit.sort(key=lambda c: c.get('nombre', '').lower())
                 if crafteos_edit:
                     nombres = [c.get('nombre', '???') for c in crafteos_edit]
                     sel_idx = st.selectbox("Receta a editar", range(len(nombres)),
@@ -903,7 +1074,7 @@ with tab_nueva:
                     _bc1, _bc2, _bc3 = st.columns([3, 2, 2])
                     with _bc1:
                         if st.button("💾 Guardar cambios", use_container_width=True, type="primary", key="save_edit"):
-                            stage_change(config_destino, config_editado)
+                            stage_config_change(config_destino, config_editado)
                             st.toast(f"🤠 {_rnd.choice(_SAVE_QUOTES)}")
                             st.session_state.ingredientes = []
                             st.session_state.recompensas = []
@@ -913,7 +1084,7 @@ with tab_nueva:
                         if st.button("🚫 Desactivar receta", key="disable_edit", use_container_width=True):
                             config_dis = comment_crafting_in_config(config_destino, st.session_state.nombre_original)
                             if config_dis:
-                                stage_change(config_destino, config_dis)
+                                stage_config_change(config_destino, config_dis)
                                 st.toast(f"'{st.session_state.nombre_original}' desactivado")
                                 st.session_state.ingredientes = []
                                 st.session_state.recompensas = []
@@ -945,8 +1116,8 @@ with tab_nueva:
                         if st.button(
                             f"💾 Guardar receta (#{n_existentes + 1} en {config_destino})",
                             use_container_width=True, type="primary", key="save_new"
-                        ):
-                            stage_change(config_destino, config_completo)
+                        ):  
+                            stage_config_change(config_destino, config_completo)
                             st.toast(f"🤠 {_rnd.choice(_SAVE_QUOTES)}")
                             st.session_state.ingredientes = []
                             st.session_state.recompensas = []

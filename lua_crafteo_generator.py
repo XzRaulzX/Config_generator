@@ -448,6 +448,44 @@ def replace_crafting_in_config(job_key: str, old_craft_name: str, new_crafting_b
     return content[:target['_start_pos']] + new_crafting_block + content[target['_end_pos']:]
 
 
+def sort_config_alphabetically(content: str) -> str:
+    """Reordena los bloques de crafteo activos alfabéticamente por nombre (Text)."""
+    if not content:
+        return content
+
+    crafteos = parse_crafting_blocks(content)
+    if len(crafteos) <= 1:
+        return content
+
+    sorted_crafteos = sorted(crafteos, key=lambda c: c.get('nombre', '').lower())
+
+    # Ya está ordenado
+    if all(crafteos[i].get('nombre', '') == sorted_crafteos[i].get('nombre', '')
+           for i in range(len(crafteos))):
+        return content
+
+    header_match = re.match(r'Config\.\w+\s*=\s*\{', content)
+    if not header_match:
+        return content
+
+    close_pos = _find_main_table_close(content)
+    if close_pos == -1:
+        return content
+
+    header = content[:header_match.end()]
+    after = content[close_pos:]  # desde '}' en adelante
+
+    # Extraer bloques comentados para preservarlos al final
+    commented = parse_commented_blocks(content)
+    commented_section = ""
+    if commented:
+        commented_section = "\n" + "\n".join(c['_commented_text'] for c in commented)
+
+    sorted_blocks = ",\n".join(c['_raw_block'] for c in sorted_crafteos)
+
+    return header + "\n" + sorted_blocks + commented_section + "\n" + after
+
+
 def delete_crafting_from_config(job_key: str, craft_name: str) -> str:
     """Elimina un bloque de crafteo del archivo de configuración."""
     content = get_config_file_content(job_key)
