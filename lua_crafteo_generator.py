@@ -82,7 +82,7 @@ def save_config_file(job_key: str, content: str) -> bool:
         except Exception as e:
             import traceback
             traceback.print_exc()
-            raise
+            return False
     return False
 
 

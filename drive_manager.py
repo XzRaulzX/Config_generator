@@ -6,6 +6,8 @@ Usa una cuenta de servicio (Service Account) configurada vía st.secrets.
 
 import json
 import os
+import ssl
+import time
 import tempfile
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -23,6 +25,7 @@ FOLDER_ID = '1gS373cidiKlUqb3FfxgvwlwmZ6odFaEO'
 # ============================================================================
 
 _service = None
+_credentials_info = None  # Almacena las credenciales para reconexión
 _file_cache = {}  # filename -> file_id
 
 
@@ -142,18 +145,21 @@ def get_service(secrets_info=None):
     Obtiene el servicio autenticado de Google Drive.
     Acepta un dict-like (incluido AttrDict de Streamlit).
     """
-    global _service
+    global _service, _credentials_info
     
     if _service is not None:
         return _service
     
-    if secrets_info is None:
+    if secrets_info is not None:
+        _credentials_info = secrets_info
+    
+    if _credentials_info is None:
         raise ValueError(
             "Se necesitan las credenciales de la cuenta de servicio.\n"
             "Configura [gcp_service_account] en los secrets de Streamlit."
         )
     
-    creds = Credentials.from_service_account_info(secrets_info, scopes=SCOPES)
+    creds = Credentials.from_service_account_info(_credentials_info, scopes=SCOPES)
     _service = build('drive', 'v3', credentials=creds)
     return _service
 
@@ -356,6 +362,23 @@ def get_available_config_keys() -> list:
     return sorted(keys)
 
 
+def _retry_on_ssl(func, *args, max_retries=3, **kwargs):
+    """
+    Ejecuta una función con reintentos ante errores SSL/conexión.
+    Resetea el servicio entre intentos para evitar conexiones corruptas.
+    """
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except (ssl.SSLError, ConnectionError, OSError, BrokenPipeError) as e:
+            last_exc = e
+            print(f"[Drive] Intento {attempt+1}/{max_retries} falló: {type(e).__name__}: {e}")
+            reset_service()
+            time.sleep(1.5 ** attempt)
+    raise last_exc
+
+
 def read_file(filename: str) -> str:
     """
     Lee el contenido de un archivo desde Drive.
@@ -370,15 +393,19 @@ def read_file(filename: str) -> str:
     if not file_id:
         return None
     
-    service = get_service()
-    content = service.files().get_media(fileId=file_id).execute()
-    return content.decode('utf-8')
+    def _do_read():
+        service = get_service()
+        content = service.files().get_media(fileId=file_id).execute()
+        return content.decode('utf-8')
+    
+    return _retry_on_ssl(_do_read)
 
 
 def write_file(filename: str, content: str) -> bool:
     """
     Escribe/actualiza un archivo en la carpeta de Drive.
     Si el archivo ya existe, lo actualiza. Si no, lo crea.
+    Incluye reintentos ante errores SSL/conexión.
     
     Args:
         filename: Nombre del archivo (ej: 'config_armero.lua')
@@ -387,34 +414,33 @@ def write_file(filename: str, content: str) -> bool:
     Returns:
         bool: True si se guardó correctamente
     """
-    service = get_service()
     file_id = _get_file_id(filename)
     
-    media = MediaInMemoryUpload(
-        content.encode('utf-8'), 
-        mimetype='text/plain',
-        resumable=False
-    )
+    def _do_write():
+        service = get_service()
+        media = MediaInMemoryUpload(
+            content.encode('utf-8'), 
+            mimetype='text/plain',
+            resumable=False
+        )
+        if file_id:
+            service.files().update(
+                fileId=file_id,
+                media_body=media
+            ).execute()
+        else:
+            file_metadata = {
+                'name': filename,
+                'parents': [FOLDER_ID]
+            }
+            result = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
+            _file_cache[filename] = result['id']
     
-    if file_id:
-        # Actualizar archivo existente
-        service.files().update(
-            fileId=file_id,
-            media_body=media
-        ).execute()
-    else:
-        # Crear archivo nuevo
-        file_metadata = {
-            'name': filename,
-            'parents': [FOLDER_ID]
-        }
-        result = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
-        _file_cache[filename] = result['id']
-    
+    _retry_on_ssl(_do_write)
     return True
 
 
@@ -432,8 +458,11 @@ def delete_file(filename: str) -> bool:
     if not file_id:
         return False
     
-    service = get_service()
-    service.files().delete(fileId=file_id).execute()
+    def _do_delete():
+        service = get_service()
+        service.files().delete(fileId=file_id).execute()
+    
+    _retry_on_ssl(_do_delete)
     _file_cache.pop(filename, None)
     return True
 
