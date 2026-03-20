@@ -1381,3 +1381,17 @@ cabra_mermelada
 cafe_helado
 earl_grey
 chai
+sherezade
+velato
+notturno
+ombra
+cuore
+manhattan
+mille_notte
+velours
+noir
+incanto
+cannoli
+tiramisu
+baba_ron
+tarta_fedora
