@@ -18160,6 +18160,19 @@
       "weight": 0.5,
       "degradation": 0,
       "groupId": 9
+    },
+    {
+      "item": "stim_caballos",
+      "label": "Stim Caballos",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
     }
   ]
 }
