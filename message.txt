@@ -1,0 +1,66 @@
+```lua
+-- ["item_name"] = {
+    --     name = "Item Name",          -- Name of the item
+    --     keepWhenUse = true,          -- Keep item when used, useful for items that are permenant
+    --     hunger = 0,
+    --     thirst = 15,
+    --     urine = 10,                  -- Urine value to add when consuming this item (typically from drinks)
+    --     stress = -5,
+    --     tempModifier = {     -- Apply Temperature modification effect
+    --         value = -2,      -- negative values cool down, positive values heat up
+    --         duration = 20000 -- Effect duration in milliseconds (20 seconds)
+    --     },
+    --     snakePoisonAntidote = true, -- Enable or disable snake poison antidote
+    --     player = {
+    --         healthCore = 0,          -- Core health value
+    --         staminaCore = 0,         -- Core stamina value
+    --         healthOuter = 0,         -- Health outer value
+    --         boostHealth = { 0, 0 },  -- {inner, outer} seconds
+    --         boostStamina = { 0, 0 }, -- {inner, outer} seconds
+    --     },
+    --     horse = {
+    --         healthCore = 0,          -- Core health value
+    --         staminaCore = 0,         -- Core stamina value
+    --         healthOuter = 0,         -- Health outer value
+    --         boostHealth = { 0, 0 },  -- {inner, outer} seconds
+    --         boostStamina = { 0, 0 }, -- {inner, outer} seconds
+    --     },
+    --     effects = {
+    --         enabled = true,           -- Enable or disable animation
+    --         animationName = "drink",  -- eat, drink, smoke, etc.
+    --         screenFx = "",            -- Optional Screen effect to play
+    --         prop = "P_BOTTLE008X",    -- Optional prop model to use for animation
+    --         buffEffect = {"PlayerBoostBuff", 10} -- Optional buff effect to apply, {effectName, duration in seconds}
+    --     },
+    --     drunk = {                     -- Optional per-item drunk settings (overrides global Config.Drunk.min/max)
+    --         min = 1,                  -- Minimum drinks needed to start getting drunk (uses global if not specified)
+    --         max = 4,                  -- Maximum drinks needed to become very drunk (uses global if not specified)
+    --         intensity = 1,             -- How much this drink adds to drunk level (default: 1)
+    --     },
+    --     returnItems = {              -- Items to give back after use
+    --         { name = "item_name", label = "Item Label" amount = 1 }
+    --     },
+    --     requiredItems = { -- Items required to use this
+    --         { name = "item_name", label = "Item Label" amount = 1 }
+    --     },
+    --     cooldown = false, -- cooldown in milliseconds, `false` to disable.
+    --     useOnMount = false, -- Allow to use the item on a mount or not, default is true.
+    --     ClientAction = function()
+    --         -- Optional custom client actions
+    --     end,
+    --     ServerAction = function(source)
+    --         -- Optional custom server actions
+    --     end,
+    --     useCondition = function(playerData) -- Optional condition to check before using the item
+    --         -- -------
+    --         -- playerData: id, identifier, job (name, grade), cash
+    --         -- -------
+    --         -- Example for job lock
+    --         if playerData.job.name == 'medic' then
+    --             return true
+    --         else
+    --             return false, "Only medics can use this item."
+    --         end
+    --     end
+    -- },
+````
