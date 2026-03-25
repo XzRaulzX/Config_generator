@@ -1481,6 +1481,359 @@ with tab_packs:
 
 
 # ============================================================================
+# FUNCIÓN AUXILIAR: Formulario de metabolismo (definida antes de usarse)
+# ============================================================================
+def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, is_new: bool = False,
+                           known_anims: list[str] | None = None, known_props: list[str] | None = None):
+    """Renderiza el formulario de edición/creación de metabolismo."""
+    prefix = f"mf_{form_key}"
+    if known_anims is None:
+        known_anims = ['eat', 'drink', 'coffee', 'smoke', 'medicine', 'stew', 'eatCan']
+    if known_props is None:
+        known_props = []
+
+    # --- Item ID y Nombre ---
+    _fc1, _fc2 = st.columns(2)
+    with _fc1:
+        if is_new:
+            _use_manual = st.checkbox("ID manual", key=f"{prefix}_manual")
+            if _use_manual:
+                item_id = st.text_input("ID del item *", value=item_data.get('item_id', ''),
+                                         placeholder="mi_nuevo_item", key=f"{prefix}_id")
+            else:
+                _m_search = st.text_input("🔍 Buscar item", placeholder="Buscar item...",
+                                           key=f"{prefix}_search")
+                _m_items = filter_items(ALL_ITEMS, _m_search)
+                item_id = st.selectbox("Item *", [""] + list(_m_items.keys()),
+                    format_func=lambda x: f"{_m_items[x]} ({x})" if x else "-- Seleccionar item --",
+                    key=f"{prefix}_item_sel")
+        else:
+            item_id = item_data.get('item_id', '')
+            st.text_input("ID del item", value=item_id, disabled=True, key=f"{prefix}_id")
+
+    with _fc2:
+        default_name = item_data.get('name', '') or ALL_ITEMS.get(item_id, item_id.replace('_', ' ').title() if item_id else '')
+        item_name = st.text_input("Nombre para mostrar *", value=default_name,
+                                   placeholder="Nombre del item", key=f"{prefix}_name")
+
+    # --- Stats principales ---
+    st.markdown('<div class="section-label">📊 Stats Base</div>', unsafe_allow_html=True)
+    _sc1, _sc2, _sc3, _sc4 = st.columns(4)
+    hunger = _sc1.number_input("🍗 Hambre", min_value=0.0, max_value=100.0,
+                                value=float(item_data.get('hunger', 0.0)), step=0.5, key=f"{prefix}_hunger")
+    thirst = _sc2.number_input("💧 Sed", min_value=0.0, max_value=100.0,
+                                value=float(item_data.get('thirst', 0.0)), step=0.5, key=f"{prefix}_thirst")
+    stress = _sc3.number_input("😰 Estrés", min_value=-100.0, max_value=100.0,
+                                value=float(item_data.get('stress', 0.0)), step=1.0, key=f"{prefix}_stress",
+                                help="Negativo = reduce estrés")
+    urine = _sc4.number_input("🚽 Orina", min_value=0.0, max_value=100.0,
+                               value=float(item_data.get('urine', 0.0)), step=1.0, key=f"{prefix}_urine")
+
+    # --- Opciones especiales ---
+    _so1, _so2 = st.columns(2)
+    keep_when_use = _so1.checkbox("🔒 Mantener al usar (keepWhenUse)", value=item_data.get('keepWhenUse', False),
+                                   key=f"{prefix}_keep")
+    snake_antidote = _so2.checkbox("🐍 Antídoto de serpiente", value=item_data.get('snakePoisonAntidote', False),
+                                    key=f"{prefix}_antidote")
+
+    # --- Temperatura ---
+    has_temp = st.checkbox("🌡️ Modificador de temperatura", value=item_data.get('has_tempModifier', False),
+                            key=f"{prefix}_has_temp")
+    temp_value = 0.0
+    temp_duration = 25000
+    if has_temp:
+        _tc1, _tc2 = st.columns(2)
+        temp_value = _tc1.number_input("Valor (- frío, + calor)", min_value=-20.0, max_value=20.0,
+                                        value=float(item_data.get('tempModifier_value', 0.0)), step=1.0,
+                                        key=f"{prefix}_temp_val")
+        temp_duration = _tc2.number_input("Duración (ms)", min_value=1000, max_value=300000,
+                                           value=int(item_data.get('tempModifier_duration', 25000)), step=5000,
+                                           key=f"{prefix}_temp_dur")
+
+    # --- Efectos en Jugador ---
+    has_player = st.checkbox("👤 Efectos en jugador", value=item_data.get('has_player', False),
+                              key=f"{prefix}_has_player")
+    p_health = 0.0
+    p_stamina = 0.0
+    p_health_outer = 0.0
+    p_boost_health = [0, 0]
+    p_boost_stamina = [0, 0]
+    if has_player:
+        _pc1, _pc2, _pc3 = st.columns(3)
+        p_health = _pc1.number_input("❤️ Health Core", min_value=0.0, max_value=100.0,
+                                      value=float(item_data.get('player_healthCore', 0.0)), step=1.0,
+                                      key=f"{prefix}_p_hc")
+        p_stamina = _pc2.number_input("⚡ Stamina Core", min_value=0.0, max_value=100.0,
+                                       value=float(item_data.get('player_staminaCore', 0.0)), step=0.5,
+                                       key=f"{prefix}_p_sc")
+        p_health_outer = _pc3.number_input("❤️ Health Outer", min_value=0.0, max_value=100.0,
+                                            value=float(item_data.get('player_healthOuter', 0.0)), step=1.0,
+                                            key=f"{prefix}_p_ho")
+        with st.expander("⏱️ Boosts de jugador (duración en segundos)"):
+            _pb1, _pb2, _pb3, _pb4 = st.columns(4)
+            bh = item_data.get('player_boostHealth', [0, 0])
+            bs = item_data.get('player_boostStamina', [0, 0])
+            p_boost_health = [
+                _pb1.number_input("Boost Health inner", 0, 600, int(bh[0]), key=f"{prefix}_pbhi"),
+                _pb2.number_input("Boost Health outer", 0, 600, int(bh[1]), key=f"{prefix}_pbho"),
+            ]
+            p_boost_stamina = [
+                _pb3.number_input("Boost Stamina inner", 0, 600, int(bs[0]), key=f"{prefix}_pbsi"),
+                _pb4.number_input("Boost Stamina outer", 0, 600, int(bs[1]), key=f"{prefix}_pbso"),
+            ]
+
+    # --- Efectos en Caballo ---
+    has_horse = st.checkbox("🐴 Efectos en caballo", value=item_data.get('has_horse', False),
+                             key=f"{prefix}_has_horse")
+    h_health = 0.0
+    h_stamina = 0.0
+    h_health_outer = 0.0
+    h_boost_health = [0, 0]
+    h_boost_stamina = [0, 0]
+    if has_horse:
+        _hc1, _hc2, _hc3 = st.columns(3)
+        h_health = _hc1.number_input("❤️ Horse Health Core", min_value=0.0, max_value=100.0,
+                                      value=float(item_data.get('horse_healthCore', 0.0)), step=1.0,
+                                      key=f"{prefix}_h_hc")
+        h_stamina = _hc2.number_input("⚡ Horse Stamina Core", min_value=0.0, max_value=100.0,
+                                       value=float(item_data.get('horse_staminaCore', 0.0)), step=0.5,
+                                       key=f"{prefix}_h_sc")
+        h_health_outer = _hc3.number_input("❤️ Horse Health Outer", min_value=0.0, max_value=100.0,
+                                            value=float(item_data.get('horse_healthOuter', 0.0)), step=1.0,
+                                            key=f"{prefix}_h_ho")
+        with st.expander("⏱️ Boosts de caballo (duración en segundos)"):
+            _hb1, _hb2, _hb3, _hb4 = st.columns(4)
+            hbh = item_data.get('horse_boostHealth', [0, 0])
+            hbs = item_data.get('horse_boostStamina', [0, 0])
+            h_boost_health = [
+                _hb1.number_input("Boost Health inner", 0, 600, int(hbh[0]), key=f"{prefix}_hbhi"),
+                _hb2.number_input("Boost Health outer", 0, 600, int(hbh[1]), key=f"{prefix}_hbho"),
+            ]
+            h_boost_stamina = [
+                _hb3.number_input("Boost Stamina inner", 0, 600, int(hbs[0]), key=f"{prefix}_hbsi"),
+                _hb4.number_input("Boost Stamina outer", 0, 600, int(hbs[1]), key=f"{prefix}_hbso"),
+            ]
+
+    # --- Animación / Efectos visuales ---
+    st.markdown('<div class="section-label">🎬 Animación y Efectos</div>', unsafe_allow_html=True)
+    has_effects = st.checkbox("Activar efectos/animación", value=item_data.get('has_effects', True),
+                               key=f"{prefix}_has_fx")
+    anim_name = 'eat'
+    fx_prop = ''
+    fx_screen = ''
+    fx_buff_name = ''
+    fx_buff_dur = 0
+    if has_effects:
+        _ac1, _ac2 = st.columns(2)
+        cur_anim = item_data.get('effects_animationName', 'eat')
+        anim_options = list(known_anims) if known_anims else []
+        if cur_anim and cur_anim not in anim_options:
+            anim_options.append(cur_anim)
+        anim_options_display = anim_options + ['✏️ Personalizado...']
+        anim_sel_idx = anim_options.index(cur_anim) if cur_anim in anim_options else 0
+        anim_sel = _ac1.selectbox("Animación", anim_options_display, index=anim_sel_idx,
+                                   key=f"{prefix}_anim")
+        if anim_sel == '✏️ Personalizado...':
+            anim_name = _ac1.text_input("Nombre de animación", value=cur_anim,
+                                         placeholder="nombre_animacion", key=f"{prefix}_anim_custom")
+        else:
+            anim_name = anim_sel
+
+        cur_prop = item_data.get('effects_prop', '')
+        prop_options = [''] + (list(known_props) if known_props else [])
+        if cur_prop and cur_prop not in prop_options:
+            prop_options.append(cur_prop)
+        prop_options_display = prop_options + ['✏️ Personalizado...']
+        prop_sel_idx = prop_options.index(cur_prop) if cur_prop in prop_options else 0
+        prop_sel = _ac2.selectbox("Prop (modelo)", prop_options_display, index=prop_sel_idx,
+                                   format_func=lambda x: '— Ninguno —' if x == '' else x,
+                                   key=f"{prefix}_prop")
+        if prop_sel == '✏️ Personalizado...':
+            fx_prop = _ac2.text_input("ID del prop", value=cur_prop, placeholder="P_MODEL_X",
+                                       key=f"{prefix}_prop_custom")
+        else:
+            fx_prop = prop_sel
+
+        with st.expander("🎭 Efectos avanzados"):
+            fx_screen = st.text_input("Screen FX", value=item_data.get('effects_screenFx', ''),
+                                       placeholder="Nombre del efecto de pantalla", key=f"{prefix}_sfx")
+            _bf1, _bf2 = st.columns(2)
+            fx_buff_name = _bf1.text_input("Buff Effect nombre", value=item_data.get('effects_buffEffect_name', ''),
+                                            placeholder="PlayerBoostBuff", key=f"{prefix}_buff_n")
+            fx_buff_dur = _bf2.number_input("Buff duración (s)", 0, 600,
+                                             int(item_data.get('effects_buffEffect_duration', 0)),
+                                             key=f"{prefix}_buff_d")
+
+    # --- Borrachera ---
+    has_drunk = st.checkbox("🍺 Borrachera", value=item_data.get('has_drunk', False), key=f"{prefix}_has_drunk")
+    drunk_min = 0
+    drunk_max = 0
+    drunk_intensity = 0
+    if has_drunk:
+        _dc1, _dc2, _dc3 = st.columns(3)
+        drunk_min = _dc1.number_input("Mín. bebidas", 0, 20, int(item_data.get('drunk_min', 1)),
+                                       key=f"{prefix}_d_min")
+        drunk_max = _dc2.number_input("Máx. bebidas", 0, 20, int(item_data.get('drunk_max', 4)),
+                                       key=f"{prefix}_d_max")
+        drunk_intensity = _dc3.number_input("Intensidad", 0, 10, int(item_data.get('drunk_intensity', 1)),
+                                             key=f"{prefix}_d_int")
+
+    # --- Return Items ---
+    has_ri = st.checkbox("♻️ Items devueltos al consumir", value=item_data.get('has_returnItems', False),
+                          key=f"{prefix}_has_ri")
+    return_items = list(item_data.get('returnItems', []))
+    if has_ri:
+        for ri_idx, ri in enumerate(return_items):
+            _ri1, _ri2, _ri3 = st.columns([4, 2, 1])
+            _ri1.text_input("Item", value=ri['name'], key=f"{prefix}_ri_n_{ri_idx}", disabled=True,
+                            label_visibility="collapsed")
+            _ri2.number_input("x", 1, 99, ri['amount'], key=f"{prefix}_ri_a_{ri_idx}",
+                              label_visibility="collapsed")
+            if _ri3.button("✕", key=f"{prefix}_ri_d_{ri_idx}"):
+                return_items.pop(ri_idx)
+                st.rerun()
+        _ri_s1, _ri_s2 = st.columns([4, 1])
+        _ri_search = st.text_input("🔍", placeholder="Buscar item a devolver...",
+                                    key=f"{prefix}_ri_search", label_visibility="collapsed")
+        _ri_items = filter_items(ALL_ITEMS, _ri_search)
+        _new_ri = _ri_s1.selectbox("Devolver", [""] + list(_ri_items.keys()),
+            format_func=lambda x: f"{_ri_items[x]} ({x})" if x else "-- Seleccionar --",
+            key=f"{prefix}_ri_new", label_visibility="collapsed")
+        _new_ri_amt = _ri_s2.number_input("x", 1, 99, 1, key=f"{prefix}_ri_amt", label_visibility="collapsed")
+        if st.button("➕ Añadir item devuelto", key=f"{prefix}_ri_add", use_container_width=True):
+            if _new_ri:
+                return_items.append({'name': _new_ri, 'amount': _new_ri_amt})
+                st.rerun()
+
+    # --- Required Items ---
+    has_rq = st.checkbox("🔑 Items requeridos para usar", value=item_data.get('has_requiredItems', False),
+                          key=f"{prefix}_has_rq")
+    required_items = list(item_data.get('requiredItems', []))
+    if has_rq:
+        for rq_idx, rq in enumerate(required_items):
+            _rq1, _rq2, _rq3 = st.columns([4, 2, 1])
+            _rq1.text_input("Item", value=rq['name'], key=f"{prefix}_rq_n_{rq_idx}", disabled=True,
+                            label_visibility="collapsed")
+            _rq2.number_input("x", 1, 99, rq['amount'], key=f"{prefix}_rq_a_{rq_idx}",
+                              label_visibility="collapsed")
+            if _rq3.button("✕", key=f"{prefix}_rq_d_{rq_idx}"):
+                required_items.pop(rq_idx)
+                st.rerun()
+        _rq_search = st.text_input("🔍", placeholder="Buscar item requerido...",
+                                    key=f"{prefix}_rq_search", label_visibility="collapsed")
+        _rq_items = filter_items(ALL_ITEMS, _rq_search)
+        _rq_s1, _rq_s2 = st.columns([4, 1])
+        _new_rq = _rq_s1.selectbox("Requerir", [""] + list(_rq_items.keys()),
+            format_func=lambda x: f"{_rq_items[x]} ({x})" if x else "-- Seleccionar --",
+            key=f"{prefix}_rq_new", label_visibility="collapsed")
+        _new_rq_amt = _rq_s2.number_input("x", 1, 99, 1, key=f"{prefix}_rq_amt", label_visibility="collapsed")
+        if st.button("➕ Añadir item requerido", key=f"{prefix}_rq_add", use_container_width=True):
+            if _new_rq:
+                required_items.append({'name': _new_rq, 'amount': _new_rq_amt})
+                st.rerun()
+
+    # --- Opciones extra ---
+    with st.expander("⚙️ Opciones extra"):
+        _oe1, _oe2 = st.columns(2)
+        cooldown = _oe1.number_input("Cooldown (ms, 0 = sin cooldown)", 0, 600000,
+                                      int(item_data.get('cooldown', 0)), step=1000, key=f"{prefix}_cd")
+        use_on_mount = _oe2.checkbox("🐴 Usar montado", value=item_data.get('useOnMount', True),
+                                      key=f"{prefix}_mount")
+        has_ca = st.checkbox("⚙️ ClientAction personalizado", value=item_data.get('has_clientAction', False),
+                              key=f"{prefix}_has_ca")
+        ca_code = ''
+        if has_ca:
+            ca_code = st.text_area("Código ClientAction", value=item_data.get('clientAction_code', ''),
+                                    height=100, key=f"{prefix}_ca_code",
+                                    placeholder="TriggerEvent('mi_evento')")
+
+    # --- Recopilar datos y generar ---
+    final_ri = []
+    for ri_idx, ri in enumerate(return_items):
+        amt = st.session_state.get(f"{prefix}_ri_a_{ri_idx}", ri['amount'])
+        final_ri.append({'name': ri['name'], 'amount': amt})
+    final_rq = []
+    for rq_idx, rq in enumerate(required_items):
+        amt = st.session_state.get(f"{prefix}_rq_a_{rq_idx}", rq['amount'])
+        final_rq.append({'name': rq['name'], 'amount': amt})
+
+    datos = {
+        'item_id': item_id,
+        'name': item_name,
+        'hunger': hunger,
+        'thirst': thirst,
+        'stress': stress,
+        'urine': urine,
+        'keepWhenUse': keep_when_use,
+        'snakePoisonAntidote': snake_antidote,
+        'has_tempModifier': has_temp,
+        'tempModifier_value': temp_value,
+        'tempModifier_duration': temp_duration,
+        'has_player': has_player,
+        'player_healthCore': p_health,
+        'player_staminaCore': p_stamina,
+        'player_healthOuter': p_health_outer,
+        'player_boostHealth': p_boost_health,
+        'player_boostStamina': p_boost_stamina,
+        'has_horse': has_horse,
+        'horse_healthCore': h_health,
+        'horse_staminaCore': h_stamina,
+        'horse_healthOuter': h_health_outer,
+        'horse_boostHealth': h_boost_health,
+        'horse_boostStamina': h_boost_stamina,
+        'has_effects': has_effects,
+        'effects_enabled': True,
+        'effects_animationName': anim_name,
+        'effects_prop': fx_prop,
+        'effects_screenFx': fx_screen,
+        'effects_buffEffect_name': fx_buff_name,
+        'effects_buffEffect_duration': fx_buff_dur,
+        'has_drunk': has_drunk,
+        'drunk_min': drunk_min,
+        'drunk_max': drunk_max,
+        'drunk_intensity': drunk_intensity,
+        'has_returnItems': has_ri,
+        'returnItems': final_ri,
+        'has_requiredItems': has_rq,
+        'requiredItems': final_rq,
+        'cooldown': cooldown,
+        'useOnMount': use_on_mount,
+        'has_clientAction': has_ca,
+        'clientAction_code': ca_code,
+    }
+
+    can_save = bool(item_id and item_name)
+    if not can_save:
+        st.warning("⚠️ Falta el ID del item y/o nombre.")
+
+    if item_id:
+        code_preview = _lmg.generate_metabolism_block(datos)
+        with st.expander("💻 Preview código Lua"):
+            st.code(code_preview, language="lua")
+
+    _bsave, _bcancel = st.columns(2)
+    with _bsave:
+        if st.button("💾 Guardar", key=f"{prefix}_save", use_container_width=True, type="primary",
+                      disabled=not can_save):
+            code = _lmg.generate_metabolism_block(datos)
+            if is_new:
+                new_content = _lmg.add_item_to_config(metab_content, code)
+            else:
+                new_content = _lmg.replace_item_in_config(metab_content, item_data.get('item_id', ''), code)
+            if new_content:
+                st.session_state._metab_pending = new_content
+                st.session_state.pop('_metab_editing', None)
+                st.toast(f"✅ '{item_name}' {'creado' if is_new else 'editado'} (pendiente)")
+                st.rerun()
+            else:
+                st.error("Error al procesar el cambio")
+    with _bcancel:
+        if st.button("❌ Cancelar", key=f"{prefix}_cancel", use_container_width=True):
+            st.session_state.pop('_metab_editing', None)
+            st.rerun()
+
+
+# ============================================================================
 # TAB 6: METABOLISMOS (configurar qué hace cada item al consumirlo)
 # ============================================================================
 with tab_metabolismo:
@@ -1652,364 +2005,6 @@ with tab_metabolismo:
                 if st.button("🗑️ Descartar", key="metab_discard", use_container_width=True):
                     st.session_state.pop('_metab_pending', None)
                     st.rerun()
-
-
-def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, is_new: bool = False,
-                           known_anims: list[str] | None = None, known_props: list[str] | None = None):
-    """Renderiza el formulario de edición/creación de metabolismo."""
-    prefix = f"mf_{form_key}"
-    if known_anims is None:
-        known_anims = ['eat', 'drink', 'coffee', 'smoke', 'medicine', 'stew', 'eatCan']
-    if known_props is None:
-        known_props = []
-
-    # --- Item ID y Nombre ---
-    _fc1, _fc2 = st.columns(2)
-    with _fc1:
-        if is_new:
-            # Permitir seleccionar item existente o escribir ID manual
-            _use_manual = st.checkbox("ID manual", key=f"{prefix}_manual")
-            if _use_manual:
-                item_id = st.text_input("ID del item *", value=item_data.get('item_id', ''),
-                                         placeholder="mi_nuevo_item", key=f"{prefix}_id")
-            else:
-                _m_search = st.text_input("🔍", placeholder="Buscar item...",
-                                           key=f"{prefix}_search", label_visibility="collapsed")
-                _m_items = filter_items(ALL_ITEMS, _m_search)
-                item_id = st.selectbox("Item *", [""] + list(_m_items.keys()),
-                    format_func=lambda x: f"{_m_items[x]} ({x})" if x else "-- Seleccionar item --",
-                    key=f"{prefix}_item_sel", label_visibility="collapsed")
-        else:
-            item_id = item_data.get('item_id', '')
-            st.text_input("ID del item", value=item_id, disabled=True, key=f"{prefix}_id")
-
-    with _fc2:
-        default_name = item_data.get('name', '') or ALL_ITEMS.get(item_id, item_id.replace('_', ' ').title() if item_id else '')
-        item_name = st.text_input("Nombre para mostrar *", value=default_name,
-                                   placeholder="Nombre del item", key=f"{prefix}_name")
-
-    # --- Stats principales ---
-    st.markdown('<div class="section-label">📊 Stats Base</div>', unsafe_allow_html=True)
-    _sc1, _sc2, _sc3, _sc4 = st.columns(4)
-    hunger = _sc1.number_input("🍗 Hambre", min_value=0.0, max_value=100.0,
-                                value=float(item_data.get('hunger', 0.0)), step=0.5, key=f"{prefix}_hunger")
-    thirst = _sc2.number_input("💧 Sed", min_value=0.0, max_value=100.0,
-                                value=float(item_data.get('thirst', 0.0)), step=0.5, key=f"{prefix}_thirst")
-    stress = _sc3.number_input("😰 Estrés", min_value=-100.0, max_value=100.0,
-                                value=float(item_data.get('stress', 0.0)), step=1.0, key=f"{prefix}_stress",
-                                help="Negativo = reduce estrés")
-    urine = _sc4.number_input("🚽 Orina", min_value=0.0, max_value=100.0,
-                               value=float(item_data.get('urine', 0.0)), step=1.0, key=f"{prefix}_urine")
-
-    # --- Opciones especiales ---
-    _so1, _so2 = st.columns(2)
-    keep_when_use = _so1.checkbox("🔒 Mantener al usar (keepWhenUse)", value=item_data.get('keepWhenUse', False),
-                                   key=f"{prefix}_keep")
-    snake_antidote = _so2.checkbox("🐍 Antídoto de serpiente", value=item_data.get('snakePoisonAntidote', False),
-                                    key=f"{prefix}_antidote")
-
-    # --- Temperatura ---
-    has_temp = st.checkbox("🌡️ Modificador de temperatura", value=item_data.get('has_tempModifier', False),
-                            key=f"{prefix}_has_temp")
-    temp_value = 0.0
-    temp_duration = 25000
-    if has_temp:
-        _tc1, _tc2 = st.columns(2)
-        temp_value = _tc1.number_input("Valor (- frío, + calor)", min_value=-20.0, max_value=20.0,
-                                        value=float(item_data.get('tempModifier_value', 0.0)), step=1.0,
-                                        key=f"{prefix}_temp_val")
-        temp_duration = _tc2.number_input("Duración (ms)", min_value=1000, max_value=300000,
-                                           value=int(item_data.get('tempModifier_duration', 25000)), step=5000,
-                                           key=f"{prefix}_temp_dur")
-
-    # --- Efectos en Jugador ---
-    has_player = st.checkbox("👤 Efectos en jugador", value=item_data.get('has_player', False),
-                              key=f"{prefix}_has_player")
-    p_health = 0.0
-    p_stamina = 0.0
-    p_health_outer = 0.0
-    p_boost_health = [0, 0]
-    p_boost_stamina = [0, 0]
-    if has_player:
-        _pc1, _pc2, _pc3 = st.columns(3)
-        p_health = _pc1.number_input("❤️ Health Core", min_value=0.0, max_value=100.0,
-                                      value=float(item_data.get('player_healthCore', 0.0)), step=1.0,
-                                      key=f"{prefix}_p_hc")
-        p_stamina = _pc2.number_input("⚡ Stamina Core", min_value=0.0, max_value=100.0,
-                                       value=float(item_data.get('player_staminaCore', 0.0)), step=0.5,
-                                       key=f"{prefix}_p_sc")
-        p_health_outer = _pc3.number_input("❤️ Health Outer", min_value=0.0, max_value=100.0,
-                                            value=float(item_data.get('player_healthOuter', 0.0)), step=1.0,
-                                            key=f"{prefix}_p_ho")
-        with st.expander("⏱️ Boosts de jugador (duración en segundos)"):
-            _pb1, _pb2, _pb3, _pb4 = st.columns(4)
-            bh = item_data.get('player_boostHealth', [0, 0])
-            bs = item_data.get('player_boostStamina', [0, 0])
-            p_boost_health = [
-                _pb1.number_input("Boost Health inner", 0, 600, int(bh[0]), key=f"{prefix}_pbhi"),
-                _pb2.number_input("Boost Health outer", 0, 600, int(bh[1]), key=f"{prefix}_pbho"),
-            ]
-            p_boost_stamina = [
-                _pb3.number_input("Boost Stamina inner", 0, 600, int(bs[0]), key=f"{prefix}_pbsi"),
-                _pb4.number_input("Boost Stamina outer", 0, 600, int(bs[1]), key=f"{prefix}_pbso"),
-            ]
-
-    # --- Efectos en Caballo ---
-    has_horse = st.checkbox("🐴 Efectos en caballo", value=item_data.get('has_horse', False),
-                             key=f"{prefix}_has_horse")
-    h_health = 0.0
-    h_stamina = 0.0
-    h_health_outer = 0.0
-    h_boost_health = [0, 0]
-    h_boost_stamina = [0, 0]
-    if has_horse:
-        _hc1, _hc2, _hc3 = st.columns(3)
-        h_health = _hc1.number_input("❤️ Horse Health Core", min_value=0.0, max_value=100.0,
-                                      value=float(item_data.get('horse_healthCore', 0.0)), step=1.0,
-                                      key=f"{prefix}_h_hc")
-        h_stamina = _hc2.number_input("⚡ Horse Stamina Core", min_value=0.0, max_value=100.0,
-                                       value=float(item_data.get('horse_staminaCore', 0.0)), step=0.5,
-                                       key=f"{prefix}_h_sc")
-        h_health_outer = _hc3.number_input("❤️ Horse Health Outer", min_value=0.0, max_value=100.0,
-                                            value=float(item_data.get('horse_healthOuter', 0.0)), step=1.0,
-                                            key=f"{prefix}_h_ho")
-        with st.expander("⏱️ Boosts de caballo (duración en segundos)"):
-            _hb1, _hb2, _hb3, _hb4 = st.columns(4)
-            hbh = item_data.get('horse_boostHealth', [0, 0])
-            hbs = item_data.get('horse_boostStamina', [0, 0])
-            h_boost_health = [
-                _hb1.number_input("Boost Health inner", 0, 600, int(hbh[0]), key=f"{prefix}_hbhi"),
-                _hb2.number_input("Boost Health outer", 0, 600, int(hbh[1]), key=f"{prefix}_hbho"),
-            ]
-            h_boost_stamina = [
-                _hb3.number_input("Boost Stamina inner", 0, 600, int(hbs[0]), key=f"{prefix}_hbsi"),
-                _hb4.number_input("Boost Stamina outer", 0, 600, int(hbs[1]), key=f"{prefix}_hbso"),
-            ]
-
-    # --- Animación / Efectos visuales ---
-    st.markdown('<div class="section-label">🎬 Animación y Efectos</div>', unsafe_allow_html=True)
-    has_effects = st.checkbox("Activar efectos/animación", value=item_data.get('has_effects', True),
-                               key=f"{prefix}_has_fx")
-    anim_name = 'eat'
-    fx_prop = ''
-    fx_screen = ''
-    fx_buff_name = ''
-    fx_buff_dur = 0
-    if has_effects:
-        _ac1, _ac2 = st.columns(2)
-        cur_anim = item_data.get('effects_animationName', 'eat')
-        # Animaciones: selectbox con las encontradas en el archivo + opción custom
-        anim_options = list(known_anims) if known_anims else []
-        if cur_anim and cur_anim not in anim_options:
-            anim_options.append(cur_anim)
-        anim_options_display = anim_options + ['✏️ Personalizado...']
-        anim_sel_idx = anim_options.index(cur_anim) if cur_anim in anim_options else 0
-        anim_sel = _ac1.selectbox("Animación", anim_options_display, index=anim_sel_idx,
-                                   key=f"{prefix}_anim")
-        if anim_sel == '✏️ Personalizado...':
-            anim_name = _ac1.text_input("Nombre de animación", value=cur_anim,
-                                         placeholder="nombre_animacion", key=f"{prefix}_anim_custom")
-        else:
-            anim_name = anim_sel
-
-        cur_prop = item_data.get('effects_prop', '')
-        # Props: selectbox con los encontrados en el archivo + opción custom
-        prop_options = [''] + (list(known_props) if known_props else [])
-        if cur_prop and cur_prop not in prop_options:
-            prop_options.append(cur_prop)
-        prop_options_display = prop_options + ['✏️ Personalizado...']
-        prop_sel_idx = prop_options.index(cur_prop) if cur_prop in prop_options else 0
-        prop_sel = _ac2.selectbox("Prop (modelo)", prop_options_display, index=prop_sel_idx,
-                                   format_func=lambda x: '— Ninguno —' if x == '' else x,
-                                   key=f"{prefix}_prop")
-        if prop_sel == '✏️ Personalizado...':
-            fx_prop = _ac2.text_input("ID del prop", value=cur_prop, placeholder="P_MODEL_X",
-                                       key=f"{prefix}_prop_custom")
-        else:
-            fx_prop = prop_sel
-
-        with st.expander("🎭 Efectos avanzados"):
-            fx_screen = st.text_input("Screen FX", value=item_data.get('effects_screenFx', ''),
-                                       placeholder="Nombre del efecto de pantalla", key=f"{prefix}_sfx")
-            _bf1, _bf2 = st.columns(2)
-            fx_buff_name = _bf1.text_input("Buff Effect nombre", value=item_data.get('effects_buffEffect_name', ''),
-                                            placeholder="PlayerBoostBuff", key=f"{prefix}_buff_n")
-            fx_buff_dur = _bf2.number_input("Buff duración (s)", 0, 600,
-                                             int(item_data.get('effects_buffEffect_duration', 0)),
-                                             key=f"{prefix}_buff_d")
-
-    # --- Borrachera ---
-    has_drunk = st.checkbox("🍺 Borrachera", value=item_data.get('has_drunk', False), key=f"{prefix}_has_drunk")
-    drunk_min = 0
-    drunk_max = 0
-    drunk_intensity = 0
-    if has_drunk:
-        _dc1, _dc2, _dc3 = st.columns(3)
-        drunk_min = _dc1.number_input("Mín. bebidas", 0, 20, int(item_data.get('drunk_min', 1)),
-                                       key=f"{prefix}_d_min")
-        drunk_max = _dc2.number_input("Máx. bebidas", 0, 20, int(item_data.get('drunk_max', 4)),
-                                       key=f"{prefix}_d_max")
-        drunk_intensity = _dc3.number_input("Intensidad", 0, 10, int(item_data.get('drunk_intensity', 1)),
-                                             key=f"{prefix}_d_int")
-
-    # --- Return Items ---
-    has_ri = st.checkbox("♻️ Items devueltos al consumir", value=item_data.get('has_returnItems', False),
-                          key=f"{prefix}_has_ri")
-    return_items = list(item_data.get('returnItems', []))
-    if has_ri:
-        for ri_idx, ri in enumerate(return_items):
-            _ri1, _ri2, _ri3 = st.columns([4, 2, 1])
-            _ri1.text_input("Item", value=ri['name'], key=f"{prefix}_ri_n_{ri_idx}", disabled=True,
-                            label_visibility="collapsed")
-            _ri2.number_input("x", 1, 99, ri['amount'], key=f"{prefix}_ri_a_{ri_idx}",
-                              label_visibility="collapsed")
-            if _ri3.button("✕", key=f"{prefix}_ri_d_{ri_idx}"):
-                return_items.pop(ri_idx)
-                st.rerun()
-        # Añadir
-        _ri_s1, _ri_s2 = st.columns([4, 1])
-        _ri_search = st.text_input("🔍", placeholder="Buscar item a devolver...",
-                                    key=f"{prefix}_ri_search", label_visibility="collapsed")
-        _ri_items = filter_items(ALL_ITEMS, _ri_search)
-        _new_ri = _ri_s1.selectbox("Devolver", [""] + list(_ri_items.keys()),
-            format_func=lambda x: f"{_ri_items[x]} ({x})" if x else "-- Seleccionar --",
-            key=f"{prefix}_ri_new", label_visibility="collapsed")
-        _new_ri_amt = _ri_s2.number_input("x", 1, 99, 1, key=f"{prefix}_ri_amt", label_visibility="collapsed")
-        if st.button("➕ Añadir item devuelto", key=f"{prefix}_ri_add", use_container_width=True):
-            if _new_ri:
-                return_items.append({'name': _new_ri, 'amount': _new_ri_amt})
-                st.rerun()
-
-    # --- Required Items ---
-    has_rq = st.checkbox("🔑 Items requeridos para usar", value=item_data.get('has_requiredItems', False),
-                          key=f"{prefix}_has_rq")
-    required_items = list(item_data.get('requiredItems', []))
-    if has_rq:
-        for rq_idx, rq in enumerate(required_items):
-            _rq1, _rq2, _rq3 = st.columns([4, 2, 1])
-            _rq1.text_input("Item", value=rq['name'], key=f"{prefix}_rq_n_{rq_idx}", disabled=True,
-                            label_visibility="collapsed")
-            _rq2.number_input("x", 1, 99, rq['amount'], key=f"{prefix}_rq_a_{rq_idx}",
-                              label_visibility="collapsed")
-            if _rq3.button("✕", key=f"{prefix}_rq_d_{rq_idx}"):
-                required_items.pop(rq_idx)
-                st.rerun()
-        _rq_search = st.text_input("🔍", placeholder="Buscar item requerido...",
-                                    key=f"{prefix}_rq_search", label_visibility="collapsed")
-        _rq_items = filter_items(ALL_ITEMS, _rq_search)
-        _rq_s1, _rq_s2 = st.columns([4, 1])
-        _new_rq = _rq_s1.selectbox("Requerir", [""] + list(_rq_items.keys()),
-            format_func=lambda x: f"{_rq_items[x]} ({x})" if x else "-- Seleccionar --",
-            key=f"{prefix}_rq_new", label_visibility="collapsed")
-        _new_rq_amt = _rq_s2.number_input("x", 1, 99, 1, key=f"{prefix}_rq_amt", label_visibility="collapsed")
-        if st.button("➕ Añadir item requerido", key=f"{prefix}_rq_add", use_container_width=True):
-            if _new_rq:
-                required_items.append({'name': _new_rq, 'amount': _new_rq_amt})
-                st.rerun()
-
-    # --- Opciones extra ---
-    with st.expander("⚙️ Opciones extra"):
-        _oe1, _oe2 = st.columns(2)
-        cooldown = _oe1.number_input("Cooldown (ms, 0 = sin cooldown)", 0, 600000,
-                                      int(item_data.get('cooldown', 0)), step=1000, key=f"{prefix}_cd")
-        use_on_mount = _oe2.checkbox("🐴 Usar montado", value=item_data.get('useOnMount', True),
-                                      key=f"{prefix}_mount")
-        has_ca = st.checkbox("⚙️ ClientAction personalizado", value=item_data.get('has_clientAction', False),
-                              key=f"{prefix}_has_ca")
-        ca_code = ''
-        if has_ca:
-            ca_code = st.text_area("Código ClientAction", value=item_data.get('clientAction_code', ''),
-                                    height=100, key=f"{prefix}_ca_code",
-                                    placeholder="TriggerEvent('mi_evento')")
-
-    # --- Recopilar datos y generar ---
-    # Leer cantidades actualizadas de return/required items
-    final_ri = []
-    for ri_idx, ri in enumerate(return_items):
-        amt = st.session_state.get(f"{prefix}_ri_a_{ri_idx}", ri['amount'])
-        final_ri.append({'name': ri['name'], 'amount': amt})
-    final_rq = []
-    for rq_idx, rq in enumerate(required_items):
-        amt = st.session_state.get(f"{prefix}_rq_a_{rq_idx}", rq['amount'])
-        final_rq.append({'name': rq['name'], 'amount': amt})
-
-    datos = {
-        'item_id': item_id,
-        'name': item_name,
-        'hunger': hunger,
-        'thirst': thirst,
-        'stress': stress,
-        'urine': urine,
-        'keepWhenUse': keep_when_use,
-        'snakePoisonAntidote': snake_antidote,
-        'has_tempModifier': has_temp,
-        'tempModifier_value': temp_value,
-        'tempModifier_duration': temp_duration,
-        'has_player': has_player,
-        'player_healthCore': p_health,
-        'player_staminaCore': p_stamina,
-        'player_healthOuter': p_health_outer,
-        'player_boostHealth': p_boost_health,
-        'player_boostStamina': p_boost_stamina,
-        'has_horse': has_horse,
-        'horse_healthCore': h_health,
-        'horse_staminaCore': h_stamina,
-        'horse_healthOuter': h_health_outer,
-        'horse_boostHealth': h_boost_health,
-        'horse_boostStamina': h_boost_stamina,
-        'has_effects': has_effects,
-        'effects_enabled': True,
-        'effects_animationName': anim_name,
-        'effects_prop': fx_prop,
-        'effects_screenFx': fx_screen,
-        'effects_buffEffect_name': fx_buff_name,
-        'effects_buffEffect_duration': fx_buff_dur,
-        'has_drunk': has_drunk,
-        'drunk_min': drunk_min,
-        'drunk_max': drunk_max,
-        'drunk_intensity': drunk_intensity,
-        'has_returnItems': has_ri,
-        'returnItems': final_ri,
-        'has_requiredItems': has_rq,
-        'requiredItems': final_rq,
-        'cooldown': cooldown,
-        'useOnMount': use_on_mount,
-        'has_clientAction': has_ca,
-        'clientAction_code': ca_code,
-    }
-
-    # Validar
-    can_save = bool(item_id and item_name)
-    if not can_save:
-        st.warning("⚠️ Falta el ID del item y/o nombre.")
-
-    # Preview del código
-    if item_id:
-        code_preview = _lmg.generate_metabolism_block(datos)
-        with st.expander("💻 Preview código Lua"):
-            st.code(code_preview, language="lua")
-
-    # Botones
-    _bsave, _bcancel = st.columns(2)
-    with _bsave:
-        if st.button("💾 Guardar", key=f"{prefix}_save", use_container_width=True, type="primary",
-                      disabled=not can_save):
-            code = _lmg.generate_metabolism_block(datos)
-            if is_new:
-                new_content = _lmg.add_item_to_config(metab_content, code)
-            else:
-                new_content = _lmg.replace_item_in_config(metab_content, item_data.get('item_id', ''), code)
-            if new_content:
-                st.session_state._metab_pending = new_content
-                st.session_state.pop('_metab_editing', None)
-                st.toast(f"✅ '{item_name}' {'creado' if is_new else 'editado'} (pendiente)")
-                st.rerun()
-            else:
-                st.error("Error al procesar el cambio")
-    with _bcancel:
-        if st.button("❌ Cancelar", key=f"{prefix}_cancel", use_container_width=True):
-            st.session_state.pop('_metab_editing', None)
-            st.rerun()
 
 
 # ============================================================================
