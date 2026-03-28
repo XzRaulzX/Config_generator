@@ -1846,13 +1846,39 @@ with tab_metabolismo:
 
     metab_content = st.session_state.get('_metab_pending') or st.session_state._metab_content
 
+    # --- Botones de aplicar/descartar cambios de metabolismo (arriba) ---
+    metab_pending = st.session_state.get('_metab_pending')
+    if metab_pending and metab_pending != st.session_state._metab_content:
+        st.warning("⚠️ Tienes cambios pendientes en metabolismos sin subir a Drive.")
+        col_ma, col_md, _ = st.columns([2, 1, 2])
+        with col_ma:
+            if st.button("☁️ Aplicar cambios a Drive", key="metab_apply", use_container_width=True, type="primary"):
+                ok = _lmg.save_metabolism_file(metab_pending)
+                if ok:
+                    st.session_state._metab_content = metab_pending
+                    st.session_state.pop('_metab_pending', None)
+                    st.toast("✅ Metabolismos guardados en Drive")
+                    st.rerun()
+                else:
+                    st.error("Error al guardar en Drive")
+        with col_md:
+            if st.button("🗑️ Descartar", key="metab_discard", use_container_width=True):
+                st.session_state.pop('_metab_pending', None)
+                st.rerun()
+
+    render_apply_button("tab_metabolismo")
+
+    @st.cache_data(show_spinner=False)
+    def _cached_parse_metabolism(content: str):
+        items = _lmg.parse_metabolism_items(content)
+        anims = _lmg.extract_unique_animations(items)
+        props = _lmg.extract_unique_props(items)
+        return items, anims, props
+
     if not metab_content:
         st.error("No se pudo leer `usables_lhr.cfg.lua` desde Drive.")
     else:
-        metab_items = _lmg.parse_metabolism_items(metab_content)
-        # Extraer animaciones y props dinámicamente del archivo real
-        _known_anims = _lmg.extract_unique_animations(metab_items)
-        _known_props = _lmg.extract_unique_props(metab_items)
+        metab_items, _known_anims, _known_props = _cached_parse_metabolism(metab_content)
         active_items = [i for i in metab_items if not i['commented']]
         commented_items = [i for i in metab_items if i['commented']]
         active_items.sort(key=lambda x: x['item_id'].lower())
@@ -1927,7 +1953,6 @@ with tab_metabolismo:
                         with col_acts:
                             if st.button("✏️ Editar", key=f"metab_edit_{idx}", use_container_width=True):
                                 st.session_state._metab_editing = _item_id
-                                st.rerun()
                             if st.button("🚫 Desactivar", key=f"metab_dis_{idx}", use_container_width=True):
                                 new_content = _lmg.comment_item_in_config(metab_content, _item_id)
                                 if new_content:
@@ -1984,29 +2009,6 @@ with tab_metabolismo:
             st.markdown("Crea un metabolismo para un item que no lo tenga configurado aún.")
             _render_metabolism_form({}, "new_0", metab_content, is_new=True,
                                      known_anims=_known_anims, known_props=_known_props)
-
-        # --- Botones de aplicar/descartar cambios de metabolismo ---
-        metab_pending = st.session_state.get('_metab_pending')
-        if metab_pending and metab_pending != st.session_state._metab_content:
-            st.markdown("---")
-            st.warning("⚠️ Tienes cambios pendientes en metabolismos sin subir a Drive.")
-            col_ma, col_md, _ = st.columns([2, 1, 2])
-            with col_ma:
-                if st.button("☁️ Aplicar cambios a Drive", key="metab_apply", use_container_width=True, type="primary"):
-                    ok = _lmg.save_metabolism_file(metab_pending)
-                    if ok:
-                        st.session_state._metab_content = metab_pending
-                        st.session_state.pop('_metab_pending', None)
-                        st.toast("✅ Metabolismos guardados en Drive")
-                        st.rerun()
-                    else:
-                        st.error("Error al guardar en Drive")
-            with col_md:
-                if st.button("🗑️ Descartar", key="metab_discard", use_container_width=True):
-                    st.session_state.pop('_metab_pending', None)
-                    st.rerun()
-
-        render_apply_button("tab_metabolismo")
 
 
 # ============================================================================
