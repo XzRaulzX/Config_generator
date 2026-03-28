@@ -2006,6 +2006,8 @@ with tab_metabolismo:
                     st.session_state.pop('_metab_pending', None)
                     st.rerun()
 
+    render_apply_button("tab_metabolismo")
+
 
 # ============================================================================
 # TAB 7: EDITOR LUA (lectura/escritura directa en Drive)
