@@ -1484,8 +1484,7 @@ with tab_packs:
 # FUNCIÓN AUXILIAR: Formulario de metabolismo (definida antes de usarse)
 # ============================================================================
 def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, is_new: bool = False,
-                           known_anims: list[str] | None = None, known_props: list[str] | None = None,
-                           fixed_item_id: str | None = None):
+                           known_anims: list[str] | None = None, known_props: list[str] | None = None):
     """Renderiza el formulario de edición/creación de metabolismo."""
     prefix = f"mf_{form_key}"
     if known_anims is None:
@@ -1496,11 +1495,7 @@ def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, 
     # --- Item ID y Nombre ---
     _fc1, _fc2 = st.columns(2)
     with _fc1:
-        if fixed_item_id:
-            # Item ID pre-fijado (desde lista de sin configurar)
-            item_id = fixed_item_id
-            st.text_input("ID del item", value=item_id, disabled=True, key=f"{prefix}_id")
-        elif is_new:
+        if is_new:
             _use_manual = st.checkbox("ID manual", key=f"{prefix}_manual")
             if _use_manual:
                 item_id = st.text_input("ID del item *", value=item_data.get('item_id', ''),
@@ -1851,53 +1846,17 @@ with tab_metabolismo:
 
     metab_content = st.session_state.get('_metab_pending') or st.session_state._metab_content
 
-    # --- Botones de aplicar/descartar cambios de metabolismo (arriba) ---
-    metab_pending = st.session_state.get('_metab_pending')
-    if metab_pending and metab_pending != st.session_state._metab_content:
-        st.warning("⚠️ Tienes cambios pendientes en metabolismos sin subir a Drive.")
-        col_ma, col_md, _ = st.columns([2, 1, 2])
-        with col_ma:
-            if st.button("☁️ Aplicar cambios a Drive", key="metab_apply", use_container_width=True, type="primary"):
-                ok = _lmg.save_metabolism_file(metab_pending)
-                if ok:
-                    st.session_state._metab_content = metab_pending
-                    st.session_state.pop('_metab_pending', None)
-                    st.toast("✅ Metabolismos guardados en Drive")
-                    st.rerun()
-                else:
-                    st.error("Error al guardar en Drive")
-        with col_md:
-            if st.button("🗑️ Descartar", key="metab_discard", use_container_width=True):
-                st.session_state.pop('_metab_pending', None)
-                st.rerun()
-
-    render_apply_button("tab_metabolismo")
-
-    @st.cache_data(show_spinner=False)
-    def _cached_parse_metabolism(content: str):
-        items = _lmg.parse_metabolism_items(content)
-        anims = _lmg.extract_unique_animations(items)
-        props = _lmg.extract_unique_props(items)
-        return items, anims, props
-
     if not metab_content:
         st.error("No se pudo leer `usables_lhr.cfg.lua` desde Drive.")
     else:
-        metab_items, _known_anims, _known_props = _cached_parse_metabolism(metab_content)
+        metab_items = _lmg.parse_metabolism_items(metab_content)
+        # Extraer animaciones y props dinámicamente del archivo real
+        _known_anims = _lmg.extract_unique_animations(metab_items)
+        _known_props = _lmg.extract_unique_props(metab_items)
         active_items = [i for i in metab_items if not i['commented']]
         commented_items = [i for i in metab_items if i['commented']]
         active_items.sort(key=lambda x: x['item_id'].lower())
         commented_items.sort(key=lambda x: x['item_id'].lower())
-
-        # Construir set de IDs ya configurados
-        _configured_ids = {i['item_id'] for i in metab_items}
-        # Items sin configurar: todos los de items.json que no están en el archivo de metabolismo
-        unconfigured_items = [
-            {'item_id': k, 'name': v}
-            for k, v in ALL_ITEMS.items()
-            if k not in _configured_ids
-        ]
-        unconfigured_items.sort(key=lambda x: x['item_id'].lower())
 
         # Sub-tabs: Gestionar existentes | Crear nuevo
         mtab_gestionar, mtab_nuevo = st.tabs(["📋 Gestionar existentes", "➕ Crear nuevo"])
@@ -1907,32 +1866,21 @@ with tab_metabolismo:
         # ==========================
         with mtab_gestionar:
             # Resumen
-            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1, mc2, mc3 = st.columns(3)
             mc1.metric("Items activos", len(active_items))
             mc2.metric("Desactivados", len(commented_items))
-            mc3.metric("Sin configurar", len(unconfigured_items))
-            mc4.metric("Total items", len(ALL_ITEMS))
+            mc3.metric("Total", len(metab_items))
 
             # Buscador
             metab_search = st.text_input("🔍 Buscar item", placeholder="Escribe el ID o nombre del item...",
                                           key="metab_search")
-
-            # Filtro por estado
-            metab_filter = st.selectbox("Filtrar por estado", ["Todos", "✅ Activos", "🚫 Desactivados", "⚪ Sin configurar"],
-                                         key="metab_filter")
-
             if metab_search:
                 s = metab_search.lower()
                 active_items = [i for i in active_items if s in i['item_id'].lower() or s in i.get('name', '').lower()]
                 commented_items = [i for i in commented_items if s in i['item_id'].lower() or s in i.get('name', '').lower()]
-                unconfigured_items = [i for i in unconfigured_items if s in i['item_id'].lower() or s in i.get('name', '').lower()]
-
-            show_active = metab_filter in ("Todos", "✅ Activos")
-            show_commented = metab_filter in ("Todos", "🚫 Desactivados")
-            show_unconfigured = metab_filter in ("Todos", "⚪ Sin configurar")
 
             # --- Items activos ---
-            if active_items and show_active:
+            if active_items:
                 st.markdown(f"**Items activos ({len(active_items)})**")
                 for idx, item in enumerate(active_items):
                     _item_id = item['item_id']
@@ -1979,6 +1927,7 @@ with tab_metabolismo:
                         with col_acts:
                             if st.button("✏️ Editar", key=f"metab_edit_{idx}", use_container_width=True):
                                 st.session_state._metab_editing = _item_id
+                                st.rerun()
                             if st.button("🚫 Desactivar", key=f"metab_dis_{idx}", use_container_width=True):
                                 new_content = _lmg.comment_item_in_config(metab_content, _item_id)
                                 if new_content:
@@ -2009,11 +1958,11 @@ with tab_metabolismo:
                             st.markdown('<div class="section-label">✏️ Editar Metabolismo</div>', unsafe_allow_html=True)
                             _render_metabolism_form(item, f"edit_{idx}", metab_content, is_new=False,
                                                      known_anims=_known_anims, known_props=_known_props)
-            elif show_active:
+            else:
                 st.info("No hay items activos" + (" con ese filtro." if metab_search else "."))
 
             # --- Items desactivados ---
-            if commented_items and show_commented:
+            if commented_items:
                 st.markdown("---")
                 st.markdown(f"**Items desactivados ({len(commented_items)})**")
                 for idx_c, item_c in enumerate(commented_items):
@@ -2028,31 +1977,6 @@ with tab_metabolismo:
                                 st.toast(f"'{item_c.get('name', item_c['item_id'])}' reactivado (pendiente)")
                                 st.rerun()
 
-            # --- Items sin configurar ---
-            if unconfigured_items and show_unconfigured:
-                st.markdown("---")
-                st.markdown(f"**Items sin configurar ({len(unconfigured_items)})**")
-                for idx_u, item_u in enumerate(unconfigured_items):
-                    col_u1, col_u2 = st.columns([4, 1])
-                    _is_creating = st.session_state.get('_metab_creating') == item_u['item_id']
-                    with col_u1:
-                        st.markdown(f'<div class="item-row" style="border-left-color:#888;opacity:.6"><div><span class="name">⚪ {item_u["name"]} ({item_u["item_id"]})</span></div></div>', unsafe_allow_html=True)
-                    with col_u2:
-                        if st.button("➕ Configurar", key=f"metab_cfg_{idx_u}", use_container_width=True):
-                            st.session_state._metab_creating = item_u['item_id']
-                            st.rerun()
-                    if _is_creating:
-                        st.markdown("---")
-                        st.markdown(f'<div class="section-label">➕ Crear metabolismo para {item_u["name"]}</div>', unsafe_allow_html=True)
-                        _render_metabolism_form(
-                            {'item_id': item_u['item_id'], 'name': item_u['name']},
-                            f"uncfg_{idx_u}", metab_content, is_new=True,
-                            known_anims=_known_anims, known_props=_known_props,
-                            fixed_item_id=item_u['item_id']
-                        )
-            elif show_unconfigured:
-                st.success("🎉 Todos los items tienen metabolismo configurado.")
-
         # ==========================
         # SUB-TAB: CREAR NUEVO
         # ==========================
@@ -2060,6 +1984,29 @@ with tab_metabolismo:
             st.markdown("Crea un metabolismo para un item que no lo tenga configurado aún.")
             _render_metabolism_form({}, "new_0", metab_content, is_new=True,
                                      known_anims=_known_anims, known_props=_known_props)
+
+        # --- Botones de aplicar/descartar cambios de metabolismo ---
+        metab_pending = st.session_state.get('_metab_pending')
+        if metab_pending and metab_pending != st.session_state._metab_content:
+            st.markdown("---")
+            st.warning("⚠️ Tienes cambios pendientes en metabolismos sin subir a Drive.")
+            col_ma, col_md, _ = st.columns([2, 1, 2])
+            with col_ma:
+                if st.button("☁️ Aplicar cambios a Drive", key="metab_apply", use_container_width=True, type="primary"):
+                    ok = _lmg.save_metabolism_file(metab_pending)
+                    if ok:
+                        st.session_state._metab_content = metab_pending
+                        st.session_state.pop('_metab_pending', None)
+                        st.toast("✅ Metabolismos guardados en Drive")
+                        st.rerun()
+                    else:
+                        st.error("Error al guardar en Drive")
+            with col_md:
+                if st.button("🗑️ Descartar", key="metab_discard", use_container_width=True):
+                    st.session_state.pop('_metab_pending', None)
+                    st.rerun()
+
+        render_apply_button("tab_metabolismo")
 
 
 # ============================================================================
