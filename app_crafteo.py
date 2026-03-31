@@ -797,7 +797,7 @@ with tab_recetas:
                                     st.rerun()
 
                         # Código raw
-                        with st.expander("🔍 Ver código Lua"):
+                        if st.checkbox("🔍 Ver código Lua", key=f"show_lua_{sel_config}_{idx}"):
                             st.code(craft.get('_raw_block', ''), language="lua")
             else:
                 st.info("No hay recetas activas en este config.")
@@ -1484,7 +1484,8 @@ with tab_packs:
 # FUNCIÓN AUXILIAR: Formulario de metabolismo (definida antes de usarse)
 # ============================================================================
 def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, is_new: bool = False,
-                           known_anims: list[str] | None = None, known_props: list[str] | None = None):
+                           known_anims: list[str] | None = None, known_props: list[str] | None = None,
+                           nested: bool = False):
     """Renderiza el formulario de edición/creación de metabolismo."""
     prefix = f"mf_{form_key}"
     if known_anims is None:
@@ -1569,18 +1570,21 @@ def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, 
         p_health_outer = _pc3.number_input("❤️ Health Outer", min_value=0.0, max_value=100.0,
                                             value=float(item_data.get('player_healthOuter', 0.0)), step=1.0,
                                             key=f"{prefix}_p_ho")
-        with st.expander("⏱️ Boosts de jugador (duración en segundos)"):
-            _pb1, _pb2, _pb3, _pb4 = st.columns(4)
-            bh = item_data.get('player_boostHealth', [0, 0])
-            bs = item_data.get('player_boostStamina', [0, 0])
-            p_boost_health = [
-                _pb1.number_input("Boost Health inner", 0, 600, int(bh[0]), key=f"{prefix}_pbhi"),
-                _pb2.number_input("Boost Health outer", 0, 600, int(bh[1]), key=f"{prefix}_pbho"),
-            ]
-            p_boost_stamina = [
-                _pb3.number_input("Boost Stamina inner", 0, 600, int(bs[0]), key=f"{prefix}_pbsi"),
-                _pb4.number_input("Boost Stamina outer", 0, 600, int(bs[1]), key=f"{prefix}_pbso"),
-            ]
+        _show_pb = st.checkbox("⏱️ Boosts de jugador (duración en segundos)", key=f"{prefix}_show_pb") if nested else True
+        _pb_ctx = st.container() if nested else st.expander("⏱️ Boosts de jugador (duración en segundos)")
+        with _pb_ctx:
+            if _show_pb if nested else True:
+                _pb1, _pb2, _pb3, _pb4 = st.columns(4)
+                bh = item_data.get('player_boostHealth', [0, 0])
+                bs = item_data.get('player_boostStamina', [0, 0])
+                p_boost_health = [
+                    _pb1.number_input("Boost Health inner", 0, 600, int(bh[0]), key=f"{prefix}_pbhi"),
+                    _pb2.number_input("Boost Health outer", 0, 600, int(bh[1]), key=f"{prefix}_pbho"),
+                ]
+                p_boost_stamina = [
+                    _pb3.number_input("Boost Stamina inner", 0, 600, int(bs[0]), key=f"{prefix}_pbsi"),
+                    _pb4.number_input("Boost Stamina outer", 0, 600, int(bs[1]), key=f"{prefix}_pbso"),
+                ]
 
     # --- Efectos en Caballo ---
     has_horse = st.checkbox("🐴 Efectos en caballo", value=item_data.get('has_horse', False),
@@ -1601,18 +1605,21 @@ def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, 
         h_health_outer = _hc3.number_input("❤️ Horse Health Outer", min_value=0.0, max_value=100.0,
                                             value=float(item_data.get('horse_healthOuter', 0.0)), step=1.0,
                                             key=f"{prefix}_h_ho")
-        with st.expander("⏱️ Boosts de caballo (duración en segundos)"):
-            _hb1, _hb2, _hb3, _hb4 = st.columns(4)
-            hbh = item_data.get('horse_boostHealth', [0, 0])
-            hbs = item_data.get('horse_boostStamina', [0, 0])
-            h_boost_health = [
-                _hb1.number_input("Boost Health inner", 0, 600, int(hbh[0]), key=f"{prefix}_hbhi"),
-                _hb2.number_input("Boost Health outer", 0, 600, int(hbh[1]), key=f"{prefix}_hbho"),
-            ]
-            h_boost_stamina = [
-                _hb3.number_input("Boost Stamina inner", 0, 600, int(hbs[0]), key=f"{prefix}_hbsi"),
-                _hb4.number_input("Boost Stamina outer", 0, 600, int(hbs[1]), key=f"{prefix}_hbso"),
-            ]
+        _show_hb = st.checkbox("⏱️ Boosts de caballo (duración en segundos)", key=f"{prefix}_show_hb") if nested else True
+        _hb_ctx = st.container() if nested else st.expander("⏱️ Boosts de caballo (duración en segundos)")
+        with _hb_ctx:
+            if _show_hb if nested else True:
+                _hb1, _hb2, _hb3, _hb4 = st.columns(4)
+                hbh = item_data.get('horse_boostHealth', [0, 0])
+                hbs = item_data.get('horse_boostStamina', [0, 0])
+                h_boost_health = [
+                    _hb1.number_input("Boost Health inner", 0, 600, int(hbh[0]), key=f"{prefix}_hbhi"),
+                    _hb2.number_input("Boost Health outer", 0, 600, int(hbh[1]), key=f"{prefix}_hbho"),
+                ]
+                h_boost_stamina = [
+                    _hb3.number_input("Boost Stamina inner", 0, 600, int(hbs[0]), key=f"{prefix}_hbsi"),
+                    _hb4.number_input("Boost Stamina outer", 0, 600, int(hbs[1]), key=f"{prefix}_hbso"),
+                ]
 
     # --- Animación / Efectos visuales ---
     st.markdown('<div class="section-label">🎬 Animación y Efectos</div>', unsafe_allow_html=True)
@@ -1654,15 +1661,18 @@ def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, 
         else:
             fx_prop = prop_sel
 
-        with st.expander("🎭 Efectos avanzados"):
-            fx_screen = st.text_input("Screen FX", value=item_data.get('effects_screenFx', ''),
-                                       placeholder="Nombre del efecto de pantalla", key=f"{prefix}_sfx")
-            _bf1, _bf2 = st.columns(2)
-            fx_buff_name = _bf1.text_input("Buff Effect nombre", value=item_data.get('effects_buffEffect_name', ''),
-                                            placeholder="PlayerBoostBuff", key=f"{prefix}_buff_n")
-            fx_buff_dur = _bf2.number_input("Buff duración (s)", 0, 600,
-                                             int(item_data.get('effects_buffEffect_duration', 0)),
-                                             key=f"{prefix}_buff_d")
+        _show_fx = st.checkbox("🎭 Efectos avanzados", key=f"{prefix}_show_fx") if nested else True
+        _fx_ctx = st.container() if nested else st.expander("🎭 Efectos avanzados")
+        with _fx_ctx:
+            if _show_fx if nested else True:
+                fx_screen = st.text_input("Screen FX", value=item_data.get('effects_screenFx', ''),
+                                           placeholder="Nombre del efecto de pantalla", key=f"{prefix}_sfx")
+                _bf1, _bf2 = st.columns(2)
+                fx_buff_name = _bf1.text_input("Buff Effect nombre", value=item_data.get('effects_buffEffect_name', ''),
+                                                placeholder="PlayerBoostBuff", key=f"{prefix}_buff_n")
+                fx_buff_dur = _bf2.number_input("Buff duración (s)", 0, 600,
+                                                 int(item_data.get('effects_buffEffect_duration', 0)),
+                                                 key=f"{prefix}_buff_d")
 
     # --- Borrachera ---
     has_drunk = st.checkbox("🍺 Borrachera", value=item_data.get('has_drunk', False), key=f"{prefix}_has_drunk")
@@ -1733,7 +1743,14 @@ def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, 
                 st.rerun()
 
     # --- Opciones extra ---
-    with st.expander("⚙️ Opciones extra"):
+    cooldown = int(item_data.get('cooldown', 0))
+    use_on_mount = item_data.get('useOnMount', True)
+    has_ca = item_data.get('has_clientAction', False)
+    ca_code = item_data.get('clientAction_code', '')
+    _show_oe = st.checkbox("⚙️ Opciones extra", key=f"{prefix}_show_oe") if nested else True
+    _oe_ctx = st.container() if nested else st.expander("⚙️ Opciones extra")
+    with _oe_ctx:
+      if _show_oe if nested else True:
         _oe1, _oe2 = st.columns(2)
         cooldown = _oe1.number_input("Cooldown (ms, 0 = sin cooldown)", 0, 600000,
                                       int(item_data.get('cooldown', 0)), step=1000, key=f"{prefix}_cd")
@@ -1808,8 +1825,12 @@ def _render_metabolism_form(item_data: dict, form_key: str, metab_content: str, 
 
     if item_id:
         code_preview = _lmg.generate_metabolism_block(datos)
-        with st.expander("💻 Preview código Lua"):
-            st.code(code_preview, language="lua")
+        if nested:
+            if st.checkbox("💻 Preview código Lua", key=f"{prefix}_show_preview"):
+                st.code(code_preview, language="lua")
+        else:
+            with st.expander("💻 Preview código Lua"):
+                st.code(code_preview, language="lua")
 
     _bsave, _bcancel = st.columns(2)
     with _bsave:
@@ -1957,7 +1978,8 @@ with tab_metabolismo:
                             st.markdown("---")
                             st.markdown('<div class="section-label">✏️ Editar Metabolismo</div>', unsafe_allow_html=True)
                             _render_metabolism_form(item, f"edit_{idx}", metab_content, is_new=False,
-                                                     known_anims=_known_anims, known_props=_known_props)
+                                                     known_anims=_known_anims, known_props=_known_props,
+                                                     nested=True)
             else:
                 st.info("No hay items activos" + (" con ese filtro." if metab_search else "."))
 
