@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gestor de Configs de Crafteo para RedM — VORP Crafting System
 Herramienta Streamlit con integración Google Drive
 """
@@ -568,10 +568,89 @@ with tab_recetas:
             c2.metric("Desactivadas", len(comentados))
             c3.metric("Líneas", content.count('\n') + 1)
 
+            # --- Filtros y búsqueda ---
+            _fc1, _fc2, _fc3 = st.columns([3, 2, 1])
+            _recipe_search = _fc1.text_input(
+                "🔍 Buscar receta", placeholder="Nombre, ingrediente o recompensa...",
+                key=f"recipe_search_{sel_config}", label_visibility="collapsed")
+            _all_cats = sorted({c.get('categoria', '') for c in crafteos} - {''})
+            _filter_cat = _fc2.selectbox(
+                "📂 Categoría", ["Todas"] + _all_cats,
+                format_func=lambda x: categorias_dict.get(x, x) if x != "Todas" else "📂 Todas las categorías",
+                key=f"recipe_cat_filter_{sel_config}", label_visibility="collapsed")
+            _PAGE_SIZE = _fc3.selectbox("Por página", [10, 20, 50, 100], index=0,
+                                         key=f"recipe_page_size_{sel_config}",
+                                         label_visibility="collapsed")
+
+            # Aplicar filtros
+            _filtered = crafteos
+            if _recipe_search:
+                _s = _recipe_search.lower()
+                def _match_recipe(c):
+                    if _s in c.get('nombre', '').lower():
+                        return True
+                    if _s in c.get('descripcion', '').lower():
+                        return True
+                    for ing in c.get('ingredientes', []):
+                        _iname = ing.get('name', '')
+                        if _s in _iname.lower() or _s in ALL_ITEMS.get(_iname, '').lower():
+                            return True
+                    for rew in c.get('recompensas', []):
+                        _rname = rew.get('name', '')
+                        if _s in _rname.lower() or _s in ALL_ITEMS.get(_rname, '').lower():
+                            return True
+                    return False
+                _filtered = [c for c in _filtered if _match_recipe(c)]
+            if _filter_cat != "Todas":
+                _filtered = [c for c in _filtered if c.get('categoria', '') == _filter_cat]
+
+            # Paginación
+            _total = len(_filtered)
+            _total_pages = max(1, (_total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+            _page_key = f"recipe_page_{sel_config}"
+            if _page_key not in st.session_state:
+                st.session_state[_page_key] = 0
+            # Reset page si cambian filtros
+            if st.session_state[_page_key] >= _total_pages:
+                st.session_state[_page_key] = 0
+            _cur_page = st.session_state[_page_key]
+            _start = _cur_page * _PAGE_SIZE
+            _end = min(_start + _PAGE_SIZE, _total)
+            _page_items = _filtered[_start:_end]
+
             # --- Crafteos activos ---
-            if crafteos:
-                st.markdown(f"**Recetas activas ({len(crafteos)}) — ordenadas A→Z**")
-                for idx, craft in enumerate(crafteos):
+            if _filtered:
+                _filter_info = ""
+                if _recipe_search or _filter_cat != "Todas":
+                    _filter_info = f" (filtradas: {_total} de {len(crafteos)})"
+                st.markdown(f"**Recetas activas ({_total}){_filter_info} — pág. {_cur_page + 1}/{_total_pages}**")
+
+                # Controles de paginación (arriba)
+                if _total_pages > 1:
+                    _pc1, _pc2, _pc3, _pc4, _pc5 = st.columns([1, 1, 2, 1, 1])
+                    with _pc1:
+                        if st.button("⏮️", key=f"pg_first_{sel_config}", use_container_width=True,
+                                     disabled=_cur_page == 0):
+                            st.session_state[_page_key] = 0; st.rerun()
+                    with _pc2:
+                        if st.button("◀️", key=f"pg_prev_{sel_config}", use_container_width=True,
+                                     disabled=_cur_page == 0):
+                            st.session_state[_page_key] = _cur_page - 1; st.rerun()
+                    with _pc3:
+                        st.markdown(f"<div style='text-align:center;padding:8px'>{_start + 1}–{_end} de {_total}</div>",
+                                    unsafe_allow_html=True)
+                    with _pc4:
+                        if st.button("▶️", key=f"pg_next_{sel_config}", use_container_width=True,
+                                     disabled=_cur_page >= _total_pages - 1):
+                            st.session_state[_page_key] = _cur_page + 1; st.rerun()
+                    with _pc5:
+                        if st.button("⏭️", key=f"pg_last_{sel_config}", use_container_width=True,
+                                     disabled=_cur_page >= _total_pages - 1):
+                            st.session_state[_page_key] = _total_pages - 1; st.rerun()
+
+                for idx, craft in enumerate(_page_items):
+                    # idx real en la lista completa para keys únicas
+                    _real_idx = _start + idx
                     nombre_c = craft.get('nombre', 'Sin nombre')
                     desc_c = craft.get('descripcion', '')
                     cat_c = craft.get('categoria', '')
@@ -612,7 +691,7 @@ with tab_recetas:
 
                         with col_act:
                             # Editar
-                            if st.button("✏️ Editar", key=f"edit_{sel_config}_{idx}", use_container_width=True):
+                            if st.button("✏️ Editar", key=f"edit_{sel_config}_{_real_idx}", use_container_width=True):
                                 st.session_state['_inline_edit'] = {
                                     'config': sel_config,
                                     'nombre_original': nombre_c,
@@ -631,7 +710,7 @@ with tab_recetas:
                                 st.rerun()
 
                             # Desactivar
-                            if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{idx}", use_container_width=True):
+                            if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{_real_idx}", use_container_width=True):
                                 new_content = comment_crafting_in_config(sel_config, nombre_c)
                                 if new_content:
                                     stage_config_change(sel_config, new_content)
@@ -641,23 +720,23 @@ with tab_recetas:
                                     st.error("Error al desactivar")
 
                             # Eliminar con confirmación
-                            if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{idx}", use_container_width=True):
-                                st.session_state[f"_confirm_del_{sel_config}_{idx}"] = True
+                            if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{_real_idx}", use_container_width=True):
+                                st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"] = True
 
-                            if st.session_state.get(f"_confirm_del_{sel_config}_{idx}"):
+                            if st.session_state.get(f"_confirm_del_{sel_config}_{_real_idx}"):
                                 st.warning("¿Seguro?")
                                 ca, cb = st.columns(2)
                                 with ca:
-                                    if st.button("Sí", key=f"yes_{sel_config}_{idx}", use_container_width=True):
+                                    if st.button("Sí", key=f"yes_{sel_config}_{_real_idx}", use_container_width=True):
                                         new_content = delete_crafting_from_config(sel_config, nombre_c)
                                         if new_content:
                                             stage_config_change(sel_config, new_content)
                                             st.success(f"'{nombre_c}' eliminado (pendiente de aplicar)")
-                                            del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
+                                            del st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"]
                                             st.rerun()
                                 with cb:
-                                    if st.button("No", key=f"no_{sel_config}_{idx}", use_container_width=True):
-                                        del st.session_state[f"_confirm_del_{sel_config}_{idx}"]
+                                    if st.button("No", key=f"no_{sel_config}_{_real_idx}", use_container_width=True):
+                                        del st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"]
                                         st.rerun()
 
                         # --- Formulario de edición inline ---
@@ -672,16 +751,16 @@ with tab_recetas:
                             # Nombre + Categoría + Nivel
                             _e1, _e2, _e3 = st.columns([3, 2, 1])
                             _ed_name = _e1.text_input("Nombre", value=_ie_data.get('nombre_original', nombre_c),
-                                                       key=f"ie_nm_{sel_config}_{idx}")
+                                                       key=f"ie_nm_{sel_config}_{_real_idx}")
                             _cat_keys = list(categorias_dict.keys())
                             _ie_cat = _ie_data.get('categoria', cat_c)
                             _ie_cat_idx = _cat_keys.index(_ie_cat) if _ie_cat in _cat_keys else 0
                             _ed_cat = _e2.selectbox("Categoría", _cat_keys, index=_ie_cat_idx,
                                                      format_func=lambda x: categorias_dict.get(x, x),
-                                                     key=f"ie_ct_{sel_config}_{idx}")
+                                                     key=f"ie_ct_{sel_config}_{_real_idx}")
                             _ed_lvl = _e3.number_input("Nivel", 0, 100,
                                                         _ie_data.get('nivel_minimo', nivel_c),
-                                                        key=f"ie_lv_{sel_config}_{idx}")
+                                                        key=f"ie_lv_{sel_config}_{_real_idx}")
 
                             # Ingredientes y Recompensas lado a lado
                             _ecol_ing, _ecol_rew = st.columns(2)
@@ -693,25 +772,25 @@ with tab_recetas:
                                     _ic1, _ic2, _ic3 = st.columns([4, 2, 1])
                                     _ic1.markdown(f'<div class="item-compact"><span class="name">{_lbl}</span> <span class="id">({_ing.get("name", "")})</span></div>', unsafe_allow_html=True)
                                     _new_cnt = _ic2.number_input("x", 1, 999, _ing.get('count', 1),
-                                                                  key=f"ie_ic_{sel_config}_{idx}_{_ii}",
+                                                                  key=f"ie_ic_{sel_config}_{_real_idx}_{_ii}",
                                                                   label_visibility="collapsed")
-                                    if _ic3.button("✕", key=f"ie_di_{sel_config}_{idx}_{_ii}"):
+                                    if _ic3.button("✕", key=f"ie_di_{sel_config}_{_real_idx}_{_ii}"):
                                         _ie_ings.pop(_ii)
                                         st.rerun()
 
                                 # Añadir ingrediente
                                 _search_ie_ing = st.text_input("🔍", placeholder="Buscar ingrediente...",
-                                                                key=f"ie_si_{sel_config}_{idx}",
+                                                                key=f"ie_si_{sel_config}_{_real_idx}",
                                                                 label_visibility="collapsed")
                                 _ings_f = filter_items(ALL_ITEMS, _search_ie_ing)
                                 _ai1, _ai2 = st.columns([4, 1])
                                 _new_ie_ing = _ai1.selectbox("Ingrediente", [""] + list(_ings_f.keys()),
                                     format_func=lambda x: f"{_ings_f[x]} ({x})" if x else "-- Añadir --",
-                                    key=f"ie_ni_{sel_config}_{idx}", label_visibility="collapsed")
+                                    key=f"ie_ni_{sel_config}_{_real_idx}", label_visibility="collapsed")
                                 _cnt_ie_ing = _ai2.number_input("x", 1, 999, 1,
-                                                                 key=f"ie_nic_{sel_config}_{idx}",
+                                                                 key=f"ie_nic_{sel_config}_{_real_idx}",
                                                                  label_visibility="collapsed")
-                                if st.button("➕ Ingrediente", key=f"ie_ai_{sel_config}_{idx}", use_container_width=True):
+                                if st.button("➕ Ingrediente", key=f"ie_ai_{sel_config}_{_real_idx}", use_container_width=True):
                                     if _new_ie_ing:
                                         _ie_ings.append({'name': _new_ie_ing, 'count': _cnt_ie_ing, 'take': True})
                                         st.rerun()
@@ -723,25 +802,25 @@ with tab_recetas:
                                     _rc1, _rc2, _rc3 = st.columns([4, 2, 1])
                                     _rc1.markdown(f'<div class="item-compact reward"><span class="name">🎁 {_lbl}</span> <span class="id">({_rew.get("name", "")})</span></div>', unsafe_allow_html=True)
                                     _new_rcnt = _rc2.number_input("x", 1, 999, _rew.get('count', 1),
-                                                                   key=f"ie_rc_{sel_config}_{idx}_{_ri}",
+                                                                   key=f"ie_rc_{sel_config}_{_real_idx}_{_ri}",
                                                                    label_visibility="collapsed")
-                                    if _rc3.button("✕", key=f"ie_dr_{sel_config}_{idx}_{_ri}"):
+                                    if _rc3.button("✕", key=f"ie_dr_{sel_config}_{_real_idx}_{_ri}"):
                                         _ie_rews.pop(_ri)
                                         st.rerun()
 
                                 # Añadir recompensa
                                 _search_ie_rew = st.text_input("🔍", placeholder="Buscar recompensa...",
-                                                                key=f"ie_sr_{sel_config}_{idx}",
+                                                                key=f"ie_sr_{sel_config}_{_real_idx}",
                                                                 label_visibility="collapsed")
                                 _rews_f = filter_items(ALL_ITEMS, _search_ie_rew)
                                 _ar1, _ar2 = st.columns([4, 1])
                                 _new_ie_rew = _ar1.selectbox("Recompensa", [""] + list(_rews_f.keys()),
                                     format_func=lambda x: f"{_rews_f[x]} ({x})" if x else "-- Añadir --",
-                                    key=f"ie_nr_{sel_config}_{idx}", label_visibility="collapsed")
+                                    key=f"ie_nr_{sel_config}_{_real_idx}", label_visibility="collapsed")
                                 _cnt_ie_rew = _ar2.number_input("x", 1, 999, 1,
-                                                                 key=f"ie_nrc_{sel_config}_{idx}",
+                                                                 key=f"ie_nrc_{sel_config}_{_real_idx}",
                                                                  label_visibility="collapsed")
-                                if st.button("➕ Recompensa", key=f"ie_ar_{sel_config}_{idx}", use_container_width=True):
+                                if st.button("➕ Recompensa", key=f"ie_ar_{sel_config}_{_real_idx}", use_container_width=True):
                                     if _new_ie_rew:
                                         _ie_rews.append({'name': _new_ie_rew, 'count': _cnt_ie_rew})
                                         st.rerun()
@@ -750,16 +829,16 @@ with tab_recetas:
                             _bs, _bc = st.columns(2)
                             _can_save = bool(_ed_name and _ie_ings and _ie_rews)
                             with _bs:
-                                if st.button("💾 Guardar cambios", key=f"ie_save_{sel_config}_{idx}",
+                                if st.button("💾 Guardar cambios", key=f"ie_save_{sel_config}_{_real_idx}",
                                              use_container_width=True, type="primary", disabled=not _can_save):
                                     # Leer cantidades actualizadas de los widgets
                                     _final_ings = []
                                     for _ii, _ing in enumerate(_ie_ings):
-                                        _cnt = st.session_state.get(f"ie_ic_{sel_config}_{idx}_{_ii}", _ing.get('count', 1))
+                                        _cnt = st.session_state.get(f"ie_ic_{sel_config}_{_real_idx}_{_ii}", _ing.get('count', 1))
                                         _final_ings.append({**_ing, 'count': _cnt})
                                     _final_rews = []
                                     for _ri, _rew in enumerate(_ie_rews):
-                                        _cnt = st.session_state.get(f"ie_rc_{sel_config}_{idx}_{_ri}", _rew.get('count', 1))
+                                        _cnt = st.session_state.get(f"ie_rc_{sel_config}_{_real_idx}_{_ri}", _rew.get('count', 1))
                                         _final_rews.append({**_rew, 'count': _cnt})
 
                                     _desc = ", ".join(
@@ -791,22 +870,32 @@ with tab_recetas:
                                     else:
                                         st.error("Error al guardar los cambios")
                             with _bc:
-                                if st.button("❌ Cancelar", key=f"ie_cancel_{sel_config}_{idx}",
+                                if st.button("❌ Cancelar", key=f"ie_cancel_{sel_config}_{_real_idx}",
                                              use_container_width=True):
                                     del st.session_state['_inline_edit']
                                     st.rerun()
 
                         # Código raw
-                        if st.checkbox("🔍 Ver código Lua", key=f"show_lua_{sel_config}_{idx}"):
+                        if st.checkbox("🔍 Ver código Lua", key=f"show_lua_{sel_config}_{_real_idx}"):
                             st.code(craft.get('_raw_block', ''), language="lua")
+            elif crafteos:
+                st.info("No hay recetas que coincidan con el filtro.")
             else:
                 st.info("No hay recetas activas en este config.")
 
             # --- Crafteos desactivados ---
             if comentados:
                 st.markdown("---")
-                st.markdown(f"**Recetas desactivadas ({len(comentados)})**")
-                for idx_d, bloque_d in enumerate(comentados):
+                _dis_search = st.text_input("🔍 Buscar en desactivadas", placeholder="Nombre...",
+                                             key=f"dis_search_{sel_config}", label_visibility="collapsed")
+                _dis_filtered = comentados
+                if _dis_search:
+                    _ds = _dis_search.lower()
+                    _dis_filtered = [b for b in comentados
+                                     if _ds in b.get('nombre', '').lower() or _ds in b.get('descripcion', '').lower()]
+                st.markdown(f"**Recetas desactivadas ({len(_dis_filtered)}" +
+                            (f" de {len(comentados)}" if _dis_search else "") + ")**")
+                for idx_d, bloque_d in enumerate(_dis_filtered):
                     col_d1, col_d2 = st.columns([4, 1])
                     with col_d1:
                         st.markdown(f'<div class="item-row" style="border-left-color:#ff4444;opacity:.7"><div><span class="name">🚫 {bloque_d.get("nombre", "?")}</span> <span class="id">{bloque_d.get("descripcion", "")}</span></div></div>', unsafe_allow_html=True)
