@@ -348,6 +348,18 @@ def filter_items(items_dict, search_term):
     return {k: v for k, v in items_dict.items() if s in k.lower() or s in v.lower()}
 
 
+@st.cache_data(show_spinner=False)
+def _cached_parse_crafting(content):
+    blocks = parse_crafting_blocks(content)
+    blocks.sort(key=lambda c: c.get('nombre', '').lower())
+    return blocks
+
+
+@st.cache_data(show_spinner=False)
+def _cached_parse_commented(content):
+    return parse_commented_blocks(content)
+
+
 def _parse_lua_table(content):
     """Parsea una tabla Lua con formato ['key'] = 'value' → dict."""
     result = {}
@@ -556,9 +568,8 @@ with tab_recetas:
         if not content:
             st.error(f"No se pudo leer config_{sel_config}.lua desde Drive")
         else:
-            crafteos = parse_crafting_blocks(content)
-            crafteos.sort(key=lambda c: c.get('nombre', '').lower())
-            comentados = parse_commented_blocks(content)
+            crafteos = _cached_parse_crafting(content)
+            comentados = _cached_parse_commented(content)
 
             st.markdown('<div class="card"><div class="card-title">📋 Recetas del Config</div></div>', unsafe_allow_html=True)
 
@@ -626,27 +637,29 @@ with tab_recetas:
                 st.markdown(f"**Recetas activas ({_total}){_filter_info} — pág. {_cur_page + 1}/{_total_pages}**")
 
                 # Controles de paginación (arriba)
+                def _set_page(key, val):
+                    st.session_state[key] = val
                 if _total_pages > 1:
                     _pc1, _pc2, _pc3, _pc4, _pc5 = st.columns([1, 1, 2, 1, 1])
                     with _pc1:
-                        if st.button("⏮️", key=f"pg_first_{sel_config}", use_container_width=True,
-                                     disabled=_cur_page == 0):
-                            st.session_state[_page_key] = 0; st.rerun()
+                        st.button("⏮️", key=f"pg_first_{sel_config}", use_container_width=True,
+                                  disabled=_cur_page == 0,
+                                  on_click=_set_page, args=(_page_key, 0))
                     with _pc2:
-                        if st.button("◀️", key=f"pg_prev_{sel_config}", use_container_width=True,
-                                     disabled=_cur_page == 0):
-                            st.session_state[_page_key] = _cur_page - 1; st.rerun()
+                        st.button("◀️", key=f"pg_prev_{sel_config}", use_container_width=True,
+                                  disabled=_cur_page == 0,
+                                  on_click=_set_page, args=(_page_key, max(0, _cur_page - 1)))
                     with _pc3:
                         st.markdown(f"<div style='text-align:center;padding:8px'>{_start + 1}–{_end} de {_total}</div>",
                                     unsafe_allow_html=True)
                     with _pc4:
-                        if st.button("▶️", key=f"pg_next_{sel_config}", use_container_width=True,
-                                     disabled=_cur_page >= _total_pages - 1):
-                            st.session_state[_page_key] = _cur_page + 1; st.rerun()
+                        st.button("▶️", key=f"pg_next_{sel_config}", use_container_width=True,
+                                  disabled=_cur_page >= _total_pages - 1,
+                                  on_click=_set_page, args=(_page_key, min(_total_pages - 1, _cur_page + 1)))
                     with _pc5:
-                        if st.button("⏭️", key=f"pg_last_{sel_config}", use_container_width=True,
-                                     disabled=_cur_page >= _total_pages - 1):
-                            st.session_state[_page_key] = _total_pages - 1; st.rerun()
+                        st.button("⏭️", key=f"pg_last_{sel_config}", use_container_width=True,
+                                  disabled=_cur_page >= _total_pages - 1,
+                                  on_click=_set_page, args=(_page_key, _total_pages - 1))
 
                 for idx, craft in enumerate(_page_items):
                     # idx real en la lista completa para keys únicas
@@ -675,17 +688,17 @@ with tab_recetas:
                     if _is_editing_this:
                         _is_expanded = True
 
+                    def _toggle_expand(key, idx, current):
+                        st.session_state[key] = None if current == idx else idx
+
                     _row_col, _btn_col = st.columns([6, 1])
                     with _row_col:
                         st.markdown(_row_html, unsafe_allow_html=True)
                     with _btn_col:
                         _toggle_label = "▼" if not _is_expanded else "▲"
-                        if st.button(_toggle_label, key=f"tgl_{sel_config}_{_real_idx}", use_container_width=True):
-                            if _is_expanded:
-                                st.session_state[_expanded_key] = None
-                            else:
-                                st.session_state[_expanded_key] = _real_idx
-                            st.rerun()
+                        st.button(_toggle_label, key=f"tgl_{sel_config}_{_real_idx}", use_container_width=True,
+                                  on_click=_toggle_expand,
+                                  args=(_expanded_key, _real_idx, st.session_state.get(_expanded_key)))
 
                     # Solo renderizar detalle si está expandida esta receta
                     if _is_expanded:
@@ -979,8 +992,7 @@ with tab_nueva:
         if modo == "editar":
             existing = get_config_file_content(config_destino)
             if existing:
-                crafteos_edit = parse_crafting_blocks(existing)
-                crafteos_edit.sort(key=lambda c: c.get('nombre', '').lower())
+                crafteos_edit = _cached_parse_crafting(existing)
                 if crafteos_edit:
                     nombres = [c.get('nombre', '???') for c in crafteos_edit]
                     sel_idx = st.selectbox("Receta a editar", range(len(nombres)),
@@ -1237,7 +1249,7 @@ with tab_nueva:
                 existing = get_config_file_content(config_destino)
                 if existing:
                     config_completo = add_crafting_to_config(config_destino, codigo_lua)
-                    n_existentes = len(parse_crafting_blocks(existing))
+                    n_existentes = len(_cached_parse_crafting(existing))
 
                     full_errors = validate_full_config(config_completo)
                     if full_errors:
