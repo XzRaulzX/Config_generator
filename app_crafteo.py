@@ -652,232 +652,258 @@ with tab_recetas:
                     # idx real en la lista completa para keys únicas
                     _real_idx = _start + idx
                     nombre_c = craft.get('nombre', 'Sin nombre')
-                    desc_c = craft.get('descripcion', '')
                     cat_c = craft.get('categoria', '')
                     pack_c = craft.get('pack', '')
                     n_ing = len(craft.get('ingredientes', []))
                     n_rew = len(craft.get('recompensas', []))
-                    nivel_c = craft.get('nivel_minimo', 0)
 
-                    label = f"⚒️ {nombre_c}"
-                    if pack_c:
-                        label += f"  [Pack: {pack_c}]"
+                    # Fila compacta: solo 1 markdown + 1 botón por receta
+                    _pack_tag = f' <span style="opacity:.6">[{pack_c}]</span>' if pack_c else ''
+                    _cat_tag = f' <span style="opacity:.5">• {categorias_dict.get(cat_c, cat_c)}</span>' if cat_c else ''
+                    _row_html = (
+                        f'<div class="item-row" style="cursor:pointer">'
+                        f'<div><span class="name">⚒️ {nombre_c}</span>{_pack_tag}{_cat_tag}</div>'
+                        f'<span class="count">{n_ing}→{n_rew}</span>'
+                        f'</div>'
+                    )
 
-                    # Expandir automáticamente si se está editando esta receta
+                    _expanded_key = f"_expanded_{sel_config}"
+                    _is_expanded = (st.session_state.get(_expanded_key) == _real_idx)
                     _ie = st.session_state.get('_inline_edit')
                     _is_editing_this = bool(_ie and _ie.get('config') == sel_config
                                              and _ie.get('nombre_original') == nombre_c)
+                    if _is_editing_this:
+                        _is_expanded = True
 
-                    with st.expander(label, expanded=_is_editing_this):
-                        col_info, col_act = st.columns([3, 1])
-                        with col_info:
-                            st.markdown(f"""
-                            <div class="card" style="padding:12px">
-                                <b>Descripción:</b> {desc_c or '—'}<br>
-                                <b>Categoría:</b> {cat_c} &nbsp;|&nbsp; <b>Nivel:</b> {nivel_c}<br>
-                                <b>Ingredientes:</b> {n_ing} &nbsp;|&nbsp; <b>Recompensas:</b> {n_rew}
-                            </div>
-                            """, unsafe_allow_html=True)
+                    _row_col, _btn_col = st.columns([6, 1])
+                    with _row_col:
+                        st.markdown(_row_html, unsafe_allow_html=True)
+                    with _btn_col:
+                        _toggle_label = "▼" if not _is_expanded else "▲"
+                        if st.button(_toggle_label, key=f"tgl_{sel_config}_{_real_idx}", use_container_width=True):
+                            if _is_expanded:
+                                st.session_state[_expanded_key] = None
+                            else:
+                                st.session_state[_expanded_key] = _real_idx
+                            st.rerun()
 
-                            if craft.get('ingredientes'):
-                                for ing in craft['ingredientes']:
-                                    lbl = ALL_ITEMS.get(ing.get('name', ''), ing.get('name', ''))
-                                    st.markdown(f'<div class="item-row"><div><span class="name">{lbl}</span> <span class="id">({ing.get("name", "")})</span></div><span class="count">x{ing.get("count", 1)}</span></div>', unsafe_allow_html=True)
+                    # Solo renderizar detalle si está expandida esta receta
+                    if _is_expanded:
+                        desc_c = craft.get('descripcion', '')
+                        nivel_c = craft.get('nivel_minimo', 0)
 
-                            if craft.get('recompensas'):
-                                for rew in craft['recompensas']:
-                                    lbl = ALL_ITEMS.get(rew.get('name', ''), rew.get('name', ''))
-                                    st.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {lbl}</span> <span class="id">({rew.get("name", "")})</span></div><span class="count" style="background:#00d26a">x{rew.get("count", 1)}</span></div>', unsafe_allow_html=True)
+                        with st.container():
+                            col_info, col_act = st.columns([3, 1])
+                            with col_info:
+                                st.markdown(f"""
+                                <div class="card" style="padding:12px">
+                                    <b>Descripción:</b> {desc_c or '—'}<br>
+                                    <b>Categoría:</b> {cat_c} &nbsp;|&nbsp; <b>Nivel:</b> {nivel_c}<br>
+                                    <b>Ingredientes:</b> {n_ing} &nbsp;|&nbsp; <b>Recompensas:</b> {n_rew}
+                                </div>
+                                """, unsafe_allow_html=True)
 
-                        with col_act:
-                            # Editar
-                            if st.button("✏️ Editar", key=f"edit_{sel_config}_{_real_idx}", use_container_width=True):
-                                st.session_state['_inline_edit'] = {
-                                    'config': sel_config,
-                                    'nombre_original': nombre_c,
-                                    'categoria': cat_c,
-                                    'nivel_minimo': nivel_c,
-                                    'pack': pack_c,
-                                    'tipo': craft.get('tipo', 'item'),
-                                    'animation': craft.get('animation', 'craft'),
-                                    'currency_type': craft.get('currency_type', 0),
-                                    'use_currency': craft.get('use_currency', False),
-                                    'location': craft.get('location', 0),
-                                    'job': craft.get('job', 0),
-                                    'ingredientes': [dict(i) for i in craft.get('ingredientes', [])],
-                                    'recompensas': [dict(r) for r in craft.get('recompensas', [])],
-                                }
-                                st.rerun()
+                                if craft.get('ingredientes'):
+                                    for ing in craft['ingredientes']:
+                                        lbl = ALL_ITEMS.get(ing.get('name', ''), ing.get('name', ''))
+                                        st.markdown(f'<div class="item-row"><div><span class="name">{lbl}</span> <span class="id">({ing.get("name", "")})</span></div><span class="count">x{ing.get("count", 1)}</span></div>', unsafe_allow_html=True)
 
-                            # Desactivar
-                            if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{_real_idx}", use_container_width=True):
-                                new_content = comment_crafting_in_config(sel_config, nombre_c)
-                                if new_content:
-                                    stage_config_change(sel_config, new_content)
-                                    st.success(f"'{nombre_c}' desactivado (pendiente de aplicar)")
-                                    st.rerun()
-                                else:
-                                    st.error("Error al desactivar")
+                                if craft.get('recompensas'):
+                                    for rew in craft['recompensas']:
+                                        lbl = ALL_ITEMS.get(rew.get('name', ''), rew.get('name', ''))
+                                        st.markdown(f'<div class="item-row" style="border-left-color:#00d26a"><div><span class="name">🎁 {lbl}</span> <span class="id">({rew.get("name", "")})</span></div><span class="count" style="background:#00d26a">x{rew.get("count", 1)}</span></div>', unsafe_allow_html=True)
 
-                            # Eliminar con confirmación
-                            if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{_real_idx}", use_container_width=True):
-                                st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"] = True
-
-                            if st.session_state.get(f"_confirm_del_{sel_config}_{_real_idx}"):
-                                st.warning("¿Seguro?")
-                                ca, cb = st.columns(2)
-                                with ca:
-                                    if st.button("Sí", key=f"yes_{sel_config}_{_real_idx}", use_container_width=True):
-                                        new_content = delete_crafting_from_config(sel_config, nombre_c)
-                                        if new_content:
-                                            stage_config_change(sel_config, new_content)
-                                            st.success(f"'{nombre_c}' eliminado (pendiente de aplicar)")
-                                            del st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"]
-                                            st.rerun()
-                                with cb:
-                                    if st.button("No", key=f"no_{sel_config}_{_real_idx}", use_container_width=True):
-                                        del st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"]
-                                        st.rerun()
-
-                        # --- Formulario de edición inline ---
-                        if _is_editing_this:
-                            st.markdown("---")
-                            st.markdown('<div class="section-label">✏️ Editar Receta</div>', unsafe_allow_html=True)
-
-                            _ie_data = st.session_state['_inline_edit']
-                            _ie_ings = _ie_data['ingredientes']
-                            _ie_rews = _ie_data['recompensas']
-
-                            # Nombre + Categoría + Nivel
-                            _e1, _e2, _e3 = st.columns([3, 2, 1])
-                            _ed_name = _e1.text_input("Nombre", value=_ie_data.get('nombre_original', nombre_c),
-                                                       key=f"ie_nm_{sel_config}_{_real_idx}")
-                            _cat_keys = list(categorias_dict.keys())
-                            _ie_cat = _ie_data.get('categoria', cat_c)
-                            _ie_cat_idx = _cat_keys.index(_ie_cat) if _ie_cat in _cat_keys else 0
-                            _ed_cat = _e2.selectbox("Categoría", _cat_keys, index=_ie_cat_idx,
-                                                     format_func=lambda x: categorias_dict.get(x, x),
-                                                     key=f"ie_ct_{sel_config}_{_real_idx}")
-                            _ed_lvl = _e3.number_input("Nivel", 0, 100,
-                                                        _ie_data.get('nivel_minimo', nivel_c),
-                                                        key=f"ie_lv_{sel_config}_{_real_idx}")
-
-                            # Ingredientes y Recompensas lado a lado
-                            _ecol_ing, _ecol_rew = st.columns(2)
-
-                            with _ecol_ing:
-                                st.markdown('<div class="section-label">🧪 Ingredientes</div>', unsafe_allow_html=True)
-                                for _ii, _ing in enumerate(_ie_ings):
-                                    _lbl = ALL_ITEMS.get(_ing.get('name', ''), _ing.get('name', ''))
-                                    _ic1, _ic2, _ic3 = st.columns([4, 2, 1])
-                                    _ic1.markdown(f'<div class="item-compact"><span class="name">{_lbl}</span> <span class="id">({_ing.get("name", "")})</span></div>', unsafe_allow_html=True)
-                                    _new_cnt = _ic2.number_input("x", 1, 999, _ing.get('count', 1),
-                                                                  key=f"ie_ic_{sel_config}_{_real_idx}_{_ii}",
-                                                                  label_visibility="collapsed")
-                                    if _ic3.button("✕", key=f"ie_di_{sel_config}_{_real_idx}_{_ii}"):
-                                        _ie_ings.pop(_ii)
-                                        st.rerun()
-
-                                # Añadir ingrediente
-                                _search_ie_ing = st.text_input("🔍", placeholder="Buscar ingrediente...",
-                                                                key=f"ie_si_{sel_config}_{_real_idx}",
-                                                                label_visibility="collapsed")
-                                _ings_f = filter_items(ALL_ITEMS, _search_ie_ing)
-                                _ai1, _ai2 = st.columns([4, 1])
-                                _new_ie_ing = _ai1.selectbox("Ingrediente", [""] + list(_ings_f.keys()),
-                                    format_func=lambda x: f"{_ings_f[x]} ({x})" if x else "-- Añadir --",
-                                    key=f"ie_ni_{sel_config}_{_real_idx}", label_visibility="collapsed")
-                                _cnt_ie_ing = _ai2.number_input("x", 1, 999, 1,
-                                                                 key=f"ie_nic_{sel_config}_{_real_idx}",
-                                                                 label_visibility="collapsed")
-                                if st.button("➕ Ingrediente", key=f"ie_ai_{sel_config}_{_real_idx}", use_container_width=True):
-                                    if _new_ie_ing:
-                                        _ie_ings.append({'name': _new_ie_ing, 'count': _cnt_ie_ing, 'take': True})
-                                        st.rerun()
-
-                            with _ecol_rew:
-                                st.markdown('<div class="section-label">🎁 Recompensas</div>', unsafe_allow_html=True)
-                                for _ri, _rew in enumerate(_ie_rews):
-                                    _lbl = ALL_ITEMS.get(_rew.get('name', ''), _rew.get('name', ''))
-                                    _rc1, _rc2, _rc3 = st.columns([4, 2, 1])
-                                    _rc1.markdown(f'<div class="item-compact reward"><span class="name">🎁 {_lbl}</span> <span class="id">({_rew.get("name", "")})</span></div>', unsafe_allow_html=True)
-                                    _new_rcnt = _rc2.number_input("x", 1, 999, _rew.get('count', 1),
-                                                                   key=f"ie_rc_{sel_config}_{_real_idx}_{_ri}",
-                                                                   label_visibility="collapsed")
-                                    if _rc3.button("✕", key=f"ie_dr_{sel_config}_{_real_idx}_{_ri}"):
-                                        _ie_rews.pop(_ri)
-                                        st.rerun()
-
-                                # Añadir recompensa
-                                _search_ie_rew = st.text_input("🔍", placeholder="Buscar recompensa...",
-                                                                key=f"ie_sr_{sel_config}_{_real_idx}",
-                                                                label_visibility="collapsed")
-                                _rews_f = filter_items(ALL_ITEMS, _search_ie_rew)
-                                _ar1, _ar2 = st.columns([4, 1])
-                                _new_ie_rew = _ar1.selectbox("Recompensa", [""] + list(_rews_f.keys()),
-                                    format_func=lambda x: f"{_rews_f[x]} ({x})" if x else "-- Añadir --",
-                                    key=f"ie_nr_{sel_config}_{_real_idx}", label_visibility="collapsed")
-                                _cnt_ie_rew = _ar2.number_input("x", 1, 999, 1,
-                                                                 key=f"ie_nrc_{sel_config}_{_real_idx}",
-                                                                 label_visibility="collapsed")
-                                if st.button("➕ Recompensa", key=f"ie_ar_{sel_config}_{_real_idx}", use_container_width=True):
-                                    if _new_ie_rew:
-                                        _ie_rews.append({'name': _new_ie_rew, 'count': _cnt_ie_rew})
-                                        st.rerun()
-
-                            # Botones Guardar / Cancelar
-                            _bs, _bc = st.columns(2)
-                            _can_save = bool(_ed_name and _ie_ings and _ie_rews)
-                            with _bs:
-                                if st.button("💾 Guardar cambios", key=f"ie_save_{sel_config}_{_real_idx}",
-                                             use_container_width=True, type="primary", disabled=not _can_save):
-                                    # Leer cantidades actualizadas de los widgets
-                                    _final_ings = []
-                                    for _ii, _ing in enumerate(_ie_ings):
-                                        _cnt = st.session_state.get(f"ie_ic_{sel_config}_{_real_idx}_{_ii}", _ing.get('count', 1))
-                                        _final_ings.append({**_ing, 'count': _cnt})
-                                    _final_rews = []
-                                    for _ri, _rew in enumerate(_ie_rews):
-                                        _cnt = st.session_state.get(f"ie_rc_{sel_config}_{_real_idx}_{_ri}", _rew.get('count', 1))
-                                        _final_rews.append({**_rew, 'count': _cnt})
-
-                                    _desc = ", ".join(
-                                        f"{i['count']}x {ALL_ITEMS.get(i['name'], i['name'])}"
-                                        + ('' if i.get('take', True) else ' (↺)')
-                                        for i in _final_ings
-                                    )
-                                    _datos = {
-                                        'nombre': _ed_name, 'descripcion': _desc,
-                                        'categoria': _ed_cat, 'tipo': _ie_data.get('tipo', 'item'),
-                                        'nivel_minimo': _ed_lvl,
-                                        'recompensas': [{'name': r['name'], 'count': r['count']} for r in _final_rews],
-                                        'ingredientes': _final_ings,
-                                        'currency_type': _ie_data.get('currency_type', 0),
-                                        'location': _ie_data.get('location', 0),
-                                        'animation': _ie_data.get('animation', 'craft'),
-                                        'use_currency': _ie_data.get('use_currency', False),
-                                        'job': _ie_data.get('job', 0),
-                                        'pack': _ie_data.get('pack', ''),
+                            with col_act:
+                                # Editar
+                                if st.button("✏️ Editar", key=f"edit_{sel_config}_{_real_idx}", use_container_width=True):
+                                    st.session_state['_inline_edit'] = {
+                                        'config': sel_config,
+                                        'nombre_original': nombre_c,
+                                        'categoria': cat_c,
+                                        'nivel_minimo': nivel_c,
+                                        'pack': pack_c,
+                                        'tipo': craft.get('tipo', 'item'),
+                                        'animation': craft.get('animation', 'craft'),
+                                        'currency_type': craft.get('currency_type', 0),
+                                        'use_currency': craft.get('use_currency', False),
+                                        'location': craft.get('location', 0),
+                                        'job': craft.get('job', 0),
+                                        'ingredientes': [dict(i) for i in craft.get('ingredientes', [])],
+                                        'recompensas': [dict(r) for r in craft.get('recompensas', [])],
                                     }
-                                    _code = generate_crafting_block(_datos)
-                                    _new_content = replace_crafting_in_config(
-                                        sel_config, _ie_data['nombre_original'], _code)
-                                    if _new_content:
-                                        stage_config_change(sel_config, _new_content)
-                                        del st.session_state['_inline_edit']
-                                        st.toast(f"✏️ '{_ed_name}' editado (pendiente de aplicar)")
+                                    st.rerun()
+
+                                # Desactivar
+                                if st.button("🚫 Desactivar", key=f"dis_{sel_config}_{_real_idx}", use_container_width=True):
+                                    new_content = comment_crafting_in_config(sel_config, nombre_c)
+                                    if new_content:
+                                        stage_config_change(sel_config, new_content)
+                                        st.success(f"'{nombre_c}' desactivado (pendiente de aplicar)")
                                         st.rerun()
                                     else:
-                                        st.error("Error al guardar los cambios")
-                            with _bc:
-                                if st.button("❌ Cancelar", key=f"ie_cancel_{sel_config}_{_real_idx}",
-                                             use_container_width=True):
-                                    del st.session_state['_inline_edit']
-                                    st.rerun()
+                                        st.error("Error al desactivar")
 
-                        # Código raw
-                        if st.checkbox("🔍 Ver código Lua", key=f"show_lua_{sel_config}_{_real_idx}"):
-                            st.code(craft.get('_raw_block', ''), language="lua")
+                                # Eliminar con confirmación
+                                if st.button("🗑️ Eliminar", key=f"del_{sel_config}_{_real_idx}", use_container_width=True):
+                                    st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"] = True
+
+                                if st.session_state.get(f"_confirm_del_{sel_config}_{_real_idx}"):
+                                    st.warning("¿Seguro?")
+                                    ca, cb = st.columns(2)
+                                    with ca:
+                                        if st.button("Sí", key=f"yes_{sel_config}_{_real_idx}", use_container_width=True):
+                                            new_content = delete_crafting_from_config(sel_config, nombre_c)
+                                            if new_content:
+                                                stage_config_change(sel_config, new_content)
+                                                st.success(f"'{nombre_c}' eliminado (pendiente de aplicar)")
+                                                del st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"]
+                                                st.rerun()
+                                    with cb:
+                                        if st.button("No", key=f"no_{sel_config}_{_real_idx}", use_container_width=True):
+                                            del st.session_state[f"_confirm_del_{sel_config}_{_real_idx}"]
+                                            st.rerun()
+
+                            # --- Formulario de edición inline ---
+                            if _is_editing_this:
+                                st.markdown("---")
+                                st.markdown('<div class="section-label">✏️ Editar Receta</div>', unsafe_allow_html=True)
+
+                                _ie_data = st.session_state['_inline_edit']
+                                _ie_ings = _ie_data['ingredientes']
+                                _ie_rews = _ie_data['recompensas']
+
+                                # Nombre + Categoría + Nivel
+                                _e1, _e2, _e3 = st.columns([3, 2, 1])
+                                _ed_name = _e1.text_input("Nombre", value=_ie_data.get('nombre_original', nombre_c),
+                                                           key=f"ie_nm_{sel_config}_{_real_idx}")
+                                _cat_keys = list(categorias_dict.keys())
+                                _ie_cat = _ie_data.get('categoria', cat_c)
+                                _ie_cat_idx = _cat_keys.index(_ie_cat) if _ie_cat in _cat_keys else 0
+                                _ed_cat = _e2.selectbox("Categoría", _cat_keys, index=_ie_cat_idx,
+                                                         format_func=lambda x: categorias_dict.get(x, x),
+                                                         key=f"ie_ct_{sel_config}_{_real_idx}")
+                                _ed_lvl = _e3.number_input("Nivel", 0, 100,
+                                                            _ie_data.get('nivel_minimo', nivel_c),
+                                                            key=f"ie_lv_{sel_config}_{_real_idx}")
+
+                                # Ingredientes y Recompensas lado a lado
+                                _ecol_ing, _ecol_rew = st.columns(2)
+
+                                with _ecol_ing:
+                                    st.markdown('<div class="section-label">🧪 Ingredientes</div>', unsafe_allow_html=True)
+                                    for _ii, _ing in enumerate(_ie_ings):
+                                        _lbl = ALL_ITEMS.get(_ing.get('name', ''), _ing.get('name', ''))
+                                        _ic1, _ic2, _ic3 = st.columns([4, 2, 1])
+                                        _ic1.markdown(f'<div class="item-compact"><span class="name">{_lbl}</span> <span class="id">({_ing.get("name", "")})</span></div>', unsafe_allow_html=True)
+                                        _new_cnt = _ic2.number_input("x", 1, 999, _ing.get('count', 1),
+                                                                      key=f"ie_ic_{sel_config}_{_real_idx}_{_ii}",
+                                                                      label_visibility="collapsed")
+                                        if _ic3.button("✕", key=f"ie_di_{sel_config}_{_real_idx}_{_ii}"):
+                                            _ie_ings.pop(_ii)
+                                            st.rerun()
+
+                                    # Añadir ingrediente
+                                    _search_ie_ing = st.text_input("🔍", placeholder="Buscar ingrediente...",
+                                                                    key=f"ie_si_{sel_config}_{_real_idx}",
+                                                                    label_visibility="collapsed")
+                                    _ings_f = filter_items(ALL_ITEMS, _search_ie_ing)
+                                    _ai1, _ai2 = st.columns([4, 1])
+                                    _new_ie_ing = _ai1.selectbox("Ingrediente", [""] + list(_ings_f.keys()),
+                                        format_func=lambda x: f"{_ings_f[x]} ({x})" if x else "-- Añadir --",
+                                        key=f"ie_ni_{sel_config}_{_real_idx}", label_visibility="collapsed")
+                                    _cnt_ie_ing = _ai2.number_input("x", 1, 999, 1,
+                                                                     key=f"ie_nic_{sel_config}_{_real_idx}",
+                                                                     label_visibility="collapsed")
+                                    if st.button("➕ Ingrediente", key=f"ie_ai_{sel_config}_{_real_idx}", use_container_width=True):
+                                        if _new_ie_ing:
+                                            _ie_ings.append({'name': _new_ie_ing, 'count': _cnt_ie_ing, 'take': True})
+                                            st.rerun()
+
+                                with _ecol_rew:
+                                    st.markdown('<div class="section-label">🎁 Recompensas</div>', unsafe_allow_html=True)
+                                    for _ri, _rew in enumerate(_ie_rews):
+                                        _lbl = ALL_ITEMS.get(_rew.get('name', ''), _rew.get('name', ''))
+                                        _rc1, _rc2, _rc3 = st.columns([4, 2, 1])
+                                        _rc1.markdown(f'<div class="item-compact reward"><span class="name">🎁 {_lbl}</span> <span class="id">({_rew.get("name", "")})</span></div>', unsafe_allow_html=True)
+                                        _new_rcnt = _rc2.number_input("x", 1, 999, _rew.get('count', 1),
+                                                                       key=f"ie_rc_{sel_config}_{_real_idx}_{_ri}",
+                                                                       label_visibility="collapsed")
+                                        if _rc3.button("✕", key=f"ie_dr_{sel_config}_{_real_idx}_{_ri}"):
+                                            _ie_rews.pop(_ri)
+                                            st.rerun()
+
+                                    # Añadir recompensa
+                                    _search_ie_rew = st.text_input("🔍", placeholder="Buscar recompensa...",
+                                                                    key=f"ie_sr_{sel_config}_{_real_idx}",
+                                                                    label_visibility="collapsed")
+                                    _rews_f = filter_items(ALL_ITEMS, _search_ie_rew)
+                                    _ar1, _ar2 = st.columns([4, 1])
+                                    _new_ie_rew = _ar1.selectbox("Recompensa", [""] + list(_rews_f.keys()),
+                                        format_func=lambda x: f"{_rews_f[x]} ({x})" if x else "-- Añadir --",
+                                        key=f"ie_nr_{sel_config}_{_real_idx}", label_visibility="collapsed")
+                                    _cnt_ie_rew = _ar2.number_input("x", 1, 999, 1,
+                                                                     key=f"ie_nrc_{sel_config}_{_real_idx}",
+                                                                     label_visibility="collapsed")
+                                    if st.button("➕ Recompensa", key=f"ie_ar_{sel_config}_{_real_idx}", use_container_width=True):
+                                        if _new_ie_rew:
+                                            _ie_rews.append({'name': _new_ie_rew, 'count': _cnt_ie_rew})
+                                            st.rerun()
+
+                                # Botones Guardar / Cancelar
+                                _bs, _bc = st.columns(2)
+                                _can_save = bool(_ed_name and _ie_ings and _ie_rews)
+                                with _bs:
+                                    if st.button("💾 Guardar cambios", key=f"ie_save_{sel_config}_{_real_idx}",
+                                                 use_container_width=True, type="primary", disabled=not _can_save):
+                                        # Leer cantidades actualizadas de los widgets
+                                        _final_ings = []
+                                        for _ii, _ing in enumerate(_ie_ings):
+                                            _cnt = st.session_state.get(f"ie_ic_{sel_config}_{_real_idx}_{_ii}", _ing.get('count', 1))
+                                            _final_ings.append({**_ing, 'count': _cnt})
+                                        _final_rews = []
+                                        for _ri, _rew in enumerate(_ie_rews):
+                                            _cnt = st.session_state.get(f"ie_rc_{sel_config}_{_real_idx}_{_ri}", _rew.get('count', 1))
+                                            _final_rews.append({**_rew, 'count': _cnt})
+
+                                        _desc = ", ".join(
+                                            f"{i['count']}x {ALL_ITEMS.get(i['name'], i['name'])}"
+                                            + ('' if i.get('take', True) else ' (↺)')
+                                            for i in _final_ings
+                                        )
+                                        _datos = {
+                                            'nombre': _ed_name, 'descripcion': _desc,
+                                            'categoria': _ed_cat, 'tipo': _ie_data.get('tipo', 'item'),
+                                            'nivel_minimo': _ed_lvl,
+                                            'recompensas': [{'name': r['name'], 'count': r['count']} for r in _final_rews],
+                                            'ingredientes': _final_ings,
+                                            'currency_type': _ie_data.get('currency_type', 0),
+                                            'location': _ie_data.get('location', 0),
+                                            'animation': _ie_data.get('animation', 'craft'),
+                                            'use_currency': _ie_data.get('use_currency', False),
+                                            'job': _ie_data.get('job', 0),
+                                            'pack': _ie_data.get('pack', ''),
+                                        }
+                                        _code = generate_crafting_block(_datos)
+                                        _new_content = replace_crafting_in_config(
+                                            sel_config, _ie_data['nombre_original'], _code)
+                                        if _new_content:
+                                            stage_config_change(sel_config, _new_content)
+                                            del st.session_state['_inline_edit']
+                                            st.toast(f"✏️ '{_ed_name}' editado (pendiente de aplicar)")
+                                            st.rerun()
+                                        else:
+                                            st.error("Error al guardar los cambios")
+                                with _bc:
+                                    if st.button("❌ Cancelar", key=f"ie_cancel_{sel_config}_{_real_idx}",
+                                                 use_container_width=True):
+                                        del st.session_state['_inline_edit']
+                                        st.rerun()
+
+                            # Código raw
+                            if st.checkbox("🔍 Ver código Lua", key=f"show_lua_{sel_config}_{_real_idx}"):
+                                st.code(craft.get('_raw_block', ''), language="lua")
+
+                        st.markdown("---")
             elif crafteos:
                 st.info("No hay recetas que coincidan con el filtro.")
             else:
