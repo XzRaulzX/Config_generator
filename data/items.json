@@ -18290,6 +18290,58 @@
       "weight": 0.5,
       "degradation": 0,
       "groupId": 9
+    },
+    {
+      "item": "osobucco",
+      "label": "Osobucco",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "lasagna",
+      "label": "Lasagna",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "Lasagna, plato italiano con pasta y queso. Delicadeza culinaria europea.",
+      "weight": 0.25,
+      "degradation": 0,
+      "groupId": 3
+    },
+    {
+      "item": "risotto",
+      "label": "Risotto",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
+    },
+    {
+      "item": "focaccia",
+      "label": "Focaccia",
+      "limit": 250,
+      "can_remove": 1,
+      "type": "item_standard",
+      "usable": 1,
+      "metadata": "{}",
+      "desc": "",
+      "weight": 0.5,
+      "degradation": 0,
+      "groupId": 9
     }
   ]
 }
